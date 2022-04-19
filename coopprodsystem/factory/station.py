@@ -32,16 +32,17 @@ class InvalidInputToAddToStationException(Exception):
     def __init__(self):
         super().__init__(str(type(self)))
 
-
-
 class Station:
     def __init__(self,
                  input_reqs: List[StationResourceDefinition],
                  output: List[StationResourceDefinition],
                  production_timer_sec_callback: ProductionTimeSecCallback,
-                 id: str = None
+                 id: str = None,
+                 type: str = None,
+                 start_on_init: bool = False
                  ):
         self.id = id if id else uuid.uuid4()
+        self.type = type
         self._input_reqs = input_reqs
         self._output = output
         self._input_storage = Storage(
@@ -58,6 +59,11 @@ class Station:
         self._production_timer: Optional[Timer] = None
 
 
+        self._refresh_thread = None
+        if start_on_init:
+            self.start_refresh_thread()
+
+    def start_refresh_thread(self):
         self._refresh_thread = threading.Thread(target=self._async_loop, daemon=True)
         self._refresh_thread.start()
 
@@ -195,7 +201,17 @@ class Station:
 
         return space
 
+    @property
+    def input_reqs(self):
+        return self._input_reqs
 
+    @property
+    def outputs(self):
+        return self._output
+
+    @property
+    def production_timer_sec_callback(self):
+        return self._production_time_sec_callback
 
 if __name__ == "__main__":
     from station_manifest import STATIONS, StationType
