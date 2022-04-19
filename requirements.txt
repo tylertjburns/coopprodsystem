@@ -1,0 +1,9 @@
+coopgraph==1.8
+coopstructs==0.46
+cooptools==0.30
+numpy==1.22.3
+pandas==1.4.2
+Pypubsub==4.0.3
+python-dateutil==2.8.2
+pytz==2022.1
+six==1.16.0
