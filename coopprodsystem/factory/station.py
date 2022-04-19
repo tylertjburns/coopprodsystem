@@ -213,6 +213,14 @@ class Station:
     def production_timer_sec_callback(self):
         return self._production_time_sec_callback
 
+def station_factory(station_template: Station) -> Station:
+    return Station(
+        input_reqs=station_template.input_reqs,
+        output=station_template.outputs,
+        production_timer_sec_callback=station_template.production_timer_sec_callback,
+        type=station_template.type
+    )
+
 if __name__ == "__main__":
     from station_manifest import STATIONS, StationType
 

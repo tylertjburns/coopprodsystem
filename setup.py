@@ -7,7 +7,7 @@ with open('requirements.txt') as f:
     requirements = f.read().splitlines()
 
 setuptools.setup(name='coopprodsystem',
-      version='0.1',
+      version='0.2',
       description='Package for Modeling production systems',
       url='https://github.com/tylertjburns/coopprodsystem',
       author='tburns',
