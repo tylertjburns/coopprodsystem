@@ -225,12 +225,16 @@ class Station:
         return self._input_storage.inventory_by_resource
 
 
-def station_factory(station_template: Station) -> Station:
+def station_factory(station_template: Station,
+                    id: str = None,
+                    start_on_init: bool = False) -> Station:
     return Station(
+        id=id,
         input_reqs=station_template.input_reqs,
         output=station_template.outputs,
         production_timer_sec_callback=station_template.production_timer_sec_callback,
-        type=station_template.type
+        type=station_template.type,
+        start_on_init=start_on_init
     )
 
 
