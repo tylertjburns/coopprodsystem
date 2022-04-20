@@ -16,21 +16,26 @@ logger = logging.getLogger('station')
 
 ProductionTimeSecCallback = Callable[[], float]
 
+
 class AtMaxCapacityException(Exception):
     def __init__(self):
         super().__init__(str(type(self)))
+
 
 class OutputStorageToFullToProduceException(Exception):
     def __init__(self):
         super().__init__(str(type(self)))
 
+
 class NotEnoughInputToProduceException(Exception):
     def __init__(self):
         super().__init__(str(type(self)))
 
+
 class InvalidInputToAddToStationException(Exception):
     def __init__(self):
         super().__init__(str(type(self)))
+
 
 class Station:
     def __init__(self,
@@ -57,7 +62,6 @@ class Station:
                                 resource_limitations=[x.content.resource]) for ii, x in enumerate(output)])
         self._production_time_sec_callback = production_timer_sec_callback
         self._production_timer: Optional[Timer] = None
-
 
         self._refresh_thread = None
         if start_on_init:
@@ -101,13 +105,15 @@ class Station:
 
         # check if room for outputs to be produced
         for output in self._output:
-            stored_out = self._output_storage.qty_of_resource_uom(resource=output.content.resource, uom_type=output.content.uom.type)
+            stored_out = self._output_storage.qty_of_resource_uom(resource=output.content.resource,
+                                                                  uom_type=output.content.uom.type)
             if stored_out + output.content.qty > output.storage_capacity:
                 raise OutputStorageToFullToProduceException()
 
         # check if enough input to produce
         for input_req in self._input_reqs:
-            stored_in = self._input_storage.qty_of_resource_uom(resource=input_req.content.resource, uom_type=input_req.content.uom.type)
+            stored_in = self._input_storage.qty_of_resource_uom(resource=input_req.content.resource,
+                                                                uom_type=input_req.content.uom.type)
             if stored_in < input_req.content.qty:
                 raise NotEnoughInputToProduceException()
 
@@ -143,8 +149,8 @@ class Station:
                 self._input_storage.remove_content(content_factory(input_req.content))
 
     @property
-    def available_output(self) -> List[Content]:
-        return self._output_storage.rolled_inventory
+    def available_output(self) -> Dict[Resource, Dict[UoM, float]]:
+        return self._output_storage.inventory_by_resource
 
     def remove_output(self, content) -> Content:
         with threading.Lock():
@@ -196,7 +202,8 @@ class Station:
         space = {}
 
         for input in self._input_reqs:
-            space_avail = self._input_storage.space_for_resource_uom(resource=input.content.resource, uom=input.content.uom)
+            space_avail = self._input_storage.space_for_resource_uom(resource=input.content.resource,
+                                                                     uom=input.content.uom)
             space[(input.content.resource, input.content.uom)] = space_avail
 
         return space
@@ -213,6 +220,11 @@ class Station:
     def production_timer_sec_callback(self):
         return self._production_time_sec_callback
 
+    @property
+    def stored_inputs(self) -> Dict[Resource, Dict[UoM, float]]:
+        return self._input_storage.inventory_by_resource
+
+
 def station_factory(station_template: Station) -> Station:
     return Station(
         input_reqs=station_template.input_reqs,
@@ -220,6 +232,7 @@ def station_factory(station_template: Station) -> Station:
         production_timer_sec_callback=station_template.production_timer_sec_callback,
         type=station_template.type
     )
+
 
 if __name__ == "__main__":
     from station_manifest import STATIONS, StationType
