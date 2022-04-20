@@ -6,20 +6,22 @@ from coopprodsystem.factory.station import Station
 from coopstructs.vectors import Vector2
 from coopprodsystem.my_dataclasses import content_factory
 import logging
+import coopprodsystem.events as cevents
 
 logger = logging.getLogger('productionLine')
 
 def transfer_station(from_s: Station, to_s: Station, delay_s: float):
     to_s_space = to_s.space_for_input
-    from_avail = from_s.available_output
-    if len(from_avail) > 0 and any(to_s_space[(c.resource, c.uom)] > 0 for c in from_avail):
+    from_avail = from_s.available_output_as_content
+
+    if len(from_avail) > 0 and any(to_s_space[x.resource][x.uom] > 0 for x in from_avail):
         time.sleep(delay_s)
         logger.info(f"{from_s.id} -> {to_s.id} transferring...")
-        for content in from_avail:
-            space = to_s_space[(content.resource, content.uom)]
+        for c in from_avail:
+            space = to_s_space[c.resource][c.uom]
             if space > 0:
-                transfer_content = content_factory(content=content, qty=min(space, content.qty))
-                from_s.remove_output(content=transfer_content)
+                transfer_content = content_factory(content=c, qty=min(space, c.qty))
+                from_s.remove_output(content=[transfer_content])
                 to_s.add_input(inputs=[transfer_content])
         logger.info(f"{from_s.id} -> {to_s.id} transfer complete")
 
@@ -49,6 +51,7 @@ class ProductionLine:
             self._graph.add_node(node)
 
         logger.info(f"PL {self._id}: Stations added: {[station[0].id for station in stations]}")
+        cevents.raise_station_added(cevents.OnStationAddedEventArgs())
 
     def add_relationships(self, relationships: Dict[Station, List[Station]]):
         edges = []
@@ -92,7 +95,8 @@ if __name__ == "__main__":
         # s3 full
         if len(stations.s3.available_output) > 0:
             time.sleep(3)
-            content_removed = stations.s3.remove_output(stations.s3.available_output[0])
+            avail_output = stations.s3.available_output_as_content
+            content_removed = stations.s3.remove_output(avail_output)
             generated.append(content_removed)
 
         # epoch

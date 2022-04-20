@@ -11,6 +11,7 @@ import logging
 import traceback
 import coopprodsystem.events as evnts
 from .stationResourceDefinition import StationResourceDefinition
+from cooptools.common import flattened_list_of_lists
 
 logger = logging.getLogger('station')
 
@@ -152,10 +153,17 @@ class Station:
     def available_output(self) -> Dict[Resource, Dict[UoM, float]]:
         return self._output_storage.inventory_by_resource
 
-    def remove_output(self, content) -> Content:
+    @property
+    def available_output_as_content(self) -> List[Content]:
+        return self.resource_uom_float_nested_to_content(self.available_output)
+
+    def remove_output(self, content: List[Content]) -> List[Content]:
         with threading.Lock():
-            removed = self._output_storage.remove_content(content_factory(content))
-            logger.info(f"station_id {self.id}: Content removed: {content}")
+            removed = []
+            for c in content:
+                rmvd = self._output_storage.remove_content(content_factory(c))
+                removed.append(rmvd)
+                logger.info(f"station_id {self.id}: Content removed: {content}")
 
             return removed
 
@@ -198,13 +206,14 @@ class Station:
         return short
 
     @property
-    def space_for_input(self) -> Dict[Tuple[Resource, UoM], float]:
+    def space_for_input(self) -> Dict[Resource, Dict[UoM, float]]:
         space = {}
 
         for input in self._input_reqs:
             space_avail = self._input_storage.space_for_resource_uom(resource=input.content.resource,
                                                                      uom=input.content.uom)
-            space[(input.content.resource, input.content.uom)] = space_avail
+            space.setdefault(input.content.resource, {})
+            space[input.content.resource][input.content.uom] = space_avail
 
         return space
 
@@ -223,6 +232,26 @@ class Station:
     @property
     def stored_inputs(self) -> Dict[Resource, Dict[UoM, float]]:
         return self._input_storage.inventory_by_resource
+
+    @property
+    def stored_inputs_as_content(self) -> List[Content]:
+        return self.resource_uom_float_nested_to_content(self.stored_inputs)
+
+    def resource_uom_float_nested_to_content(self,
+                                             resource_uom_float_nested: Dict[Resource, Dict[UoM, float]]) -> List[Content]:
+        flat_avail = flattened_list_of_lists(
+            [[Content(resource, uom, float) for uom, float in uom_amt_dict.items()] for resource, uom_amt_dict in
+             resource_uom_float_nested.items()])
+
+        return flat_avail
+
+    def content_to_resource_uom_float_nested(self, resource_uom_float_nested: Dict[Resource, Dict[UoM, float]]) -> List[
+        Content]:
+        flat_avail = flattened_list_of_lists(
+            [[(resource, uom, float) for uom, float in uom_amt_dict.items()] for resource, uom_amt_dict in
+             resource_uom_float_nested.items()])
+
+        return flat_avail
 
 
 def station_factory(station_template: Station,

@@ -31,8 +31,8 @@ while True:
     # s3 full
     if len(STATIONS[StationType.DUMMY_3].available_output) > 0:
         time.sleep(3)
-        content_removed = STATIONS[StationType.DUMMY_3].remove_output(STATIONS[StationType.DUMMY_3].available_output[0])
-        generated.append(content_removed)
+        content_removed = STATIONS[StationType.DUMMY_3].remove_output(STATIONS[StationType.DUMMY_3].available_output_as_content)
+        generated += content_removed
 
     # epoch
     print(sum(x.qty for x in generated))
