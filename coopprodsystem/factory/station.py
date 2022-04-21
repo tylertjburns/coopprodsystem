@@ -1,4 +1,3 @@
-import datetime
 import time
 import threading
 import uuid
@@ -12,6 +11,7 @@ import traceback
 import coopprodsystem.events as evnts
 from .stationResourceDefinition import StationResourceDefinition
 from cooptools.common import flattened_list_of_lists
+from coopprodsystem.factory.stationStatus import StationStatus
 
 logger = logging.getLogger('station')
 
@@ -87,7 +87,7 @@ class Station:
     def progress(self):
         if self._production_timer is None:
             return None
-        
+
         return self._production_timer.progress
 
     @property
@@ -136,8 +136,6 @@ class Station:
 
         # raise event
         evnts.raise_event_production_started_at_station(args=evnts.OnProductionStartedAtStationEventArgs(
-            date_stamp=datetime.datetime.now(),
-            run_time=time.perf_counter(),
             station_id=self.id
         ))
 
@@ -190,8 +188,6 @@ class Station:
 
         # raise event
         evnts.raise_event_production_finished_at_station(args=evnts.OnProductionFinishedAtStationEventArgs(
-            date_stamp=datetime.datetime.now(),
-            run_time=time.perf_counter(),
             station_id=self.id
         ))
 
@@ -214,15 +210,15 @@ class Station:
 
     @property
     def space_for_input(self) -> Dict[Resource, Dict[UoM, float]]:
-        space = {}
+        return self._input_storage.space_for_resource_uom(
+            [(defin.content.resource, defin.content.uom) for defin in self._output]
+        )
 
-        for input in self._input_reqs:
-            space_avail = self._input_storage.space_for_resource_uom(resource=input.content.resource,
-                                                                     uom=input.content.uom)
-            space.setdefault(input.content.resource, {})
-            space[input.content.resource][input.content.uom] = space_avail
-
-        return space
+    @property
+    def space_for_output(self) -> Dict[Resource, Dict[UoM, float]]:
+        return self._output_storage.space_for_resource_uom(
+            [(defin.content.resource, defin.content.uom) for defin in self._output]
+        )
 
     @property
     def input_reqs(self):
@@ -260,6 +256,24 @@ class Station:
 
         return flat_avail
 
+    @property
+    def status(self) -> List[StationStatus]:
+        ret = []
+
+        if self.producing:
+            ret.append(StationStatus.PRODUCING)
+        else:
+            ret.append(StationStatus.IDLE)
+
+        if len(self.short_inputs) > 0:
+            ret.append(StationStatus.STARVED)
+
+        output_space = self.space_for_output
+        out_space_flat = flattened_list_of_lists([[qty for uom, qty in uom_dict.items()] for resource, uom_dict in output_space.items()])
+        if any([x==0 for x in out_space_flat]):
+            ret.append(StationStatus.FULL)
+
+        return ret
 
 def station_factory(station_template: Station,
                     id: str = None,

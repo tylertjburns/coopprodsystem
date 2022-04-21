@@ -15,8 +15,7 @@ class ProductionEventType(Enum):
 
 @dataclass(frozen=True)
 class EventArgsBase:
-    run_time: float
-    date_stamp: Optional[datetime.datetime]
+    date_stamp: Optional[datetime.datetime] = field(init=False)
 
     def __post_init__(self):
         if self.date_stamp is None:

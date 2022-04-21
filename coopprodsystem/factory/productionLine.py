@@ -7,6 +7,7 @@ from coopstructs.vectors import Vector2
 from coopprodsystem.my_dataclasses import content_factory
 import logging
 import coopprodsystem.events as cevents
+import threading
 
 logger = logging.getLogger('productionLine')
 
@@ -34,7 +35,8 @@ class ProductionLine:
 
         self._id = id or uuid.uuid4()
         self._graph = Graph()
-        self._stations = set()
+        self._stations: Dict[str, Station] = {}
+        self._station_positions: Dict[str, Vector2] = {}
 
         # add init stations:
         if init_stations: self.add_stations(init_stations)
@@ -43,15 +45,22 @@ class ProductionLine:
         if init_relationship_map: self.add_relationships(init_relationship_map)
 
     def add_stations(self, stations: List[Tuple[Station, Vector2]]):
+        # add stations to the prod line
+        for station, pos in stations:
+            self._stations[station.id] = station
+            self._station_positions[station.id] = pos
 
-        nodes = [Node(station[0].id, station[1]) for station in stations]
-        self._stations.add([station[0] for station in stations])
+        # raise events
+        for station, pos in stations:
+            cevents.raise_station_added(cevents.OnStationAddedEventArgs(station_id=station.id))
 
+        # add nodes to graph
+        nodes = [Node(station.id, pos) for station, pos in stations]
         for node in nodes:
             self._graph.add_node(node)
 
-        logger.info(f"PL {self._id}: Stations added: {[station[0].id for station in stations]}")
-        cevents.raise_station_added(cevents.OnStationAddedEventArgs())
+        # log
+        logger.info(f"PL {self._id}: Stations added: {[station.id for station, pos in stations]}")
 
     def add_relationships(self, relationships: Dict[Station, List[Station]]):
         edges = []
@@ -64,6 +73,14 @@ class ProductionLine:
         self._graph.add_edges(edges)
 
         logger.info(f"PL {self._id}: Station relationships added: {[edge for edge in edges]}")
+
+    @property
+    def stations(self) -> Dict[str, Station]:
+        return self._stations
+
+    @property
+    def station_positions(self) -> Dict[str, Vector2]:
+        return self._station_positions
 
 if __name__ == "__main__":
     import logging

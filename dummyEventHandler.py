@@ -1,10 +1,10 @@
 import logging
 
 from coopprodsystem.events import OnProductionStartedAtStationEventArgs, OnProductionFinishedAtStationEventArgs
-from coopprodsystem.events.absEventHandler import AbsEventHandler
+from coopprodsystem.events.absProductionEventHandler import AbsProductionEventHandler
 
 logger = logging.getLogger('dummyeventhandler')
-class DummyEventHandler(AbsEventHandler):
+class DummyEventHandler(AbsProductionEventHandler):
     def __init__(self):
         super().__init__()
 

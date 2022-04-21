@@ -1,6 +1,6 @@
 import uuid
 from coopprodsystem.my_dataclasses import Location, Content, content_factory, UoM, UoMType, Resource
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
 from cooptools.common import flattened_list_of_lists
 
 class NoLocationFoundException(Exception):
@@ -199,21 +199,22 @@ class Storage:
         stored = self.find_resources(resources=[resource], uom_types=[uom_type, None], location_range=location_range)
         flat_vals = flattened_list_of_lists([conts for loc, conts in stored.items()])
 
-        # flat_vals = flattened_list_of_lists(
-        #     [
-        #         [cont.qty for cont in content if cont.resource == resource and cont.uom.type == uom_type]
-        # for loc, content in self._inventory.items()
-        # ])
         qty = sum([x.qty for x in flat_vals])
         return qty
 
-    def space_for_resource_uom(self, resource: Resource, uom: UoM, only_designated: bool = True) -> float:
+    def space_for_resource_uom(self,
+                               resource_uoms: List[Tuple[Resource, UoM]],
+                               only_designated: bool = True) -> Dict[Resource, Dict[UoM, float]]:
         if not only_designated:
             raise NotImplementedError()
 
-        locs = self.location_match(loc_resource_limits=[resource])
-        available_qty = sum([space for loc, space in self.space_at_location(locations=locs, uom=uom).items()])
-        return available_qty
+        ret = {}
+        for resource, uom in resource_uoms:
+            locs = self.location_match(loc_resource_limits=[resource])
+            available_qty = sum([space for loc, space in self.space_at_location(locations=locs, uom=uom).items()])
+            ret.setdefault(resource, {})
+            ret[resource][uom] = available_qty
+        return ret
 
     @property
     def occupied_locs(self):
@@ -242,8 +243,6 @@ class Storage:
             for uom, qty in uom_qty.items():
                 ret.append(Content(resource=resource, uom=uom, qty=qty))
         return ret
-
-
 
 
 if __name__ == "__main__":
