@@ -2,15 +2,14 @@ import time
 import threading
 import uuid
 
-from coopprodsystem.my_dataclasses import Content, content_factory, Resource, UoM
-from typing import List, Optional, Callable, Dict, Tuple
+from coopprodsystem.my_dataclasses import Content, content_factory, ResourceUoM
+from typing import List, Optional, Callable, Dict
 from cooptools.timedDecay import Timer
 from coopprodsystem.storage import Storage, Location
 import logging
 import traceback
 import coopprodsystem.events as evnts
 from .stationResourceDefinition import StationResourceDefinition
-from cooptools.common import flattened_list_of_lists
 from coopprodsystem.factory.stationStatus import StationStatus
 
 logger = logging.getLogger('station')
@@ -155,7 +154,7 @@ class Station:
                 self._input_storage.remove_content(content_factory(input_req.content))
 
     @property
-    def available_output(self) -> Dict[Resource, Dict[UoM, float]]:
+    def available_output(self) -> Dict[ResourceUoM, float]:
         return self._output_storage.inventory_by_resource
 
     @property
@@ -209,15 +208,15 @@ class Station:
         return short
 
     @property
-    def space_for_input(self) -> Dict[Resource, Dict[UoM, float]]:
+    def space_for_input(self) -> Dict[ResourceUoM, float]:
         return self._input_storage.space_for_resource_uom(
-            [(defin.content.resource, defin.content.uom) for defin in self._output]
+            [defin.content.resourceUoM for defin in self._output]
         )
 
     @property
-    def space_for_output(self) -> Dict[Resource, Dict[UoM, float]]:
+    def space_for_output(self) -> Dict[ResourceUoM, float]:
         return self._output_storage.space_for_resource_uom(
-            [(defin.content.resource, defin.content.uom) for defin in self._output]
+            [defin.content.resourceUoM for defin in self._output]
         )
 
     @property
@@ -233,7 +232,7 @@ class Station:
         return self._production_time_sec_callback
 
     @property
-    def stored_inputs(self) -> Dict[Resource, Dict[UoM, float]]:
+    def stored_inputs(self) -> Dict[ResourceUoM, float]:
         return self._input_storage.inventory_by_resource
 
     @property
@@ -241,20 +240,11 @@ class Station:
         return self.resource_uom_float_nested_to_content(self.stored_inputs)
 
     def resource_uom_float_nested_to_content(self,
-                                             resource_uom_float_nested: Dict[Resource, Dict[UoM, float]]) -> List[Content]:
-        flat_avail = flattened_list_of_lists(
-            [[Content(resource, uom, float) for uom, float in uom_amt_dict.items()] for resource, uom_amt_dict in
-             resource_uom_float_nested.items()])
+                                             resource_uom_float_nested: Dict[ResourceUoM, float]) -> List[Content]:
+        return [Content(resource_uom, float) for resource_uom, float in resource_uom_float_nested.items()]
 
-        return flat_avail
-
-    def content_to_resource_uom_float_nested(self, resource_uom_float_nested: Dict[Resource, Dict[UoM, float]]) -> List[
-        Content]:
-        flat_avail = flattened_list_of_lists(
-            [[(resource, uom, float) for uom, float in uom_amt_dict.items()] for resource, uom_amt_dict in
-             resource_uom_float_nested.items()])
-
-        return flat_avail
+    def content_to_resource_uom_float_nested(self, content: List[Content]) -> Dict[ResourceUoM, float]:
+        return {c.resourceUoM: c.qty for c in content}
 
     @property
     def status(self) -> List[StationStatus]:
@@ -269,8 +259,8 @@ class Station:
             ret.append(StationStatus.STARVED)
 
         output_space = self.space_for_output
-        out_space_flat = flattened_list_of_lists([[qty for uom, qty in uom_dict.items()] for resource, uom_dict in output_space.items()])
-        if any([x==0 for x in out_space_flat]):
+        out_space_flat = [qty for resource_uom, qty in output_space.items()]
+        if any([x == 0 for x in out_space_flat]):
             ret.append(StationStatus.FULL)
 
         return ret

@@ -1,5 +1,5 @@
 import uuid
-from coopprodsystem.my_dataclasses import Location, Content, content_factory, UoM, UoMType, Resource
+from coopprodsystem.my_dataclasses import Location, Content, content_factory, UoM, UoMType, Resource, ResourceUoM
 from typing import List, Dict, Optional, Tuple
 from cooptools.common import flattened_list_of_lists
 
@@ -203,17 +203,16 @@ class Storage:
         return qty
 
     def space_for_resource_uom(self,
-                               resource_uoms: List[Tuple[Resource, UoM]],
-                               only_designated: bool = True) -> Dict[Resource, Dict[UoM, float]]:
+                               resource_uoms: List[ResourceUoM],
+                               only_designated: bool = True) -> Dict[ResourceUoM, float]:
         if not only_designated:
             raise NotImplementedError()
 
         ret = {}
-        for resource, uom in resource_uoms:
-            locs = self.location_match(loc_resource_limits=[resource])
-            available_qty = sum([space for loc, space in self.space_at_location(locations=locs, uom=uom).items()])
-            ret.setdefault(resource, {})
-            ret[resource][uom] = available_qty
+        for resource_uom in resource_uoms:
+            locs = self.location_match(loc_resource_limits=[resource_uom.resource])
+            available_qty = sum([space for loc, space in self.space_at_location(locations=locs, uom=resource_uom.uom).items()])
+            ret[resource_uom] = available_qty
         return ret
 
     @property
@@ -225,7 +224,7 @@ class Storage:
         return [loc for loc, cont in self._inventory.items() if len(cont) == 0]
 
     @property
-    def inventory_by_resource(self) -> Dict[Resource, Dict[UoM, float]]:
+    def inventory_by_resource(self) -> Dict[ResourceUoM, float]:
         ret = {}
         for loc, content in self._inventory.items():
             for cont in content:
@@ -239,9 +238,8 @@ class Storage:
         inv_by_resource = self.inventory_by_resource
 
         ret = []
-        for resource, uom_qty in inv_by_resource.items():
-            for uom, qty in uom_qty.items():
-                ret.append(Content(resource=resource, uom=uom, qty=qty))
+        for resource_uom, qty in inv_by_resource.items():
+            ret.append(Content(resourceUoM=resource_uom, qty=qty))
         return ret
 
 
@@ -257,8 +255,7 @@ if __name__ == "__main__":
 
     for ii in range(4):
         content = Content(
-            resource=sku_a,
-            uom=UoM(UoMType.EACH),
+            resourceUoM=ResourceUoM(sku_a, UoM(UoMType.EACH)),
             qty=3
         )
         inv.add_content(content)
@@ -266,6 +263,6 @@ if __name__ == "__main__":
     print(inv)
     pprint.pprint(inv.find_resources([sku_a]))
 
-    inv.remove_content(Content(sku_a, UoM(UoMType.EACH), 9))
+    inv.remove_content(Content(ResourceUoM(sku_a, UoM(UoMType.EACH)), 9))
 
     print(inv.rolled_inventory)

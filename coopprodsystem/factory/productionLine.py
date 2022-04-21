@@ -1,48 +1,117 @@
 import uuid
 import time
 from coopgraph.graphs import Graph, Node, Edge
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Optional
 from coopprodsystem.factory.station import Station
 from coopstructs.vectors import Vector2
-from coopprodsystem.my_dataclasses import content_factory
+from coopprodsystem.my_dataclasses import content_factory, ResourceUoM, Content, StationTransfer
 import logging
 import coopprodsystem.events as cevents
 import threading
+from cooptools.timedDecay import Timer
 
 logger = logging.getLogger('productionLine')
+
+STATION_TO_STATION_TRANSFER_SPEED_MS = 5000
 
 def transfer_station(from_s: Station, to_s: Station, delay_s: float):
     to_s_space = to_s.space_for_input
     from_avail = from_s.available_output_as_content
 
-    if len(from_avail) > 0 and any(to_s_space[x.resource][x.uom] > 0 for x in from_avail):
+    if len(from_avail) > 0 and any(to_s_space[x.resourceUoM] > 0 for x in from_avail):
         time.sleep(delay_s)
         logger.info(f"{from_s.id} -> {to_s.id} transferring...")
         for c in from_avail:
-            space = to_s_space[c.resource][c.uom]
+            space = to_s_space[c.resourceUoM]
             if space > 0:
                 transfer_content = content_factory(content=c, qty=min(space, c.qty))
                 from_s.remove_output(content=[transfer_content])
                 to_s.add_input(inputs=[transfer_content])
         logger.info(f"{from_s.id} -> {to_s.id} transfer complete")
 
+
+
+
 class ProductionLine:
     def __init__(self,
                  init_stations: List[Tuple[Station, Vector2]] = None,
-                 init_relationship_map: Dict[Station, List[Station]] = None,
-                 id: str = None
+                 init_relationship_map: Dict[Station, List[Tuple[Station, List[ResourceUoM]]]] = None,
+                 id: str = None,
+                 start_on_init: bool = True
                  ):
 
         self._id = id or uuid.uuid4()
         self._graph = Graph()
         self._stations: Dict[str, Station] = {}
         self._station_positions: Dict[str, Vector2] = {}
+        self._station_transfers: List[StationTransfer] = []
+        self._connection_resource_uom: Dict[str, List[ResourceUoM]] = {}
+
 
         # add init stations:
         if init_stations: self.add_stations(init_stations)
 
         # add init relationships
         if init_relationship_map: self.add_relationships(init_relationship_map)
+
+        # start
+        if start_on_init: self.start_refresh_thread()
+
+    def start_refresh_thread(self):
+        self._refresh_thread = threading.Thread(target=self._async_loop, daemon=True)
+        self._refresh_thread.start()
+
+    def _async_loop(self):
+        while True:
+            self.check_stations_need_replenishment()
+            self.check_handle_transfers()
+            time.sleep(0.1)
+
+    def init_station_transfer(self, from_s: Station, to_s: Station, content: Content, timer: Timer):
+        transfer_content = next(from_s.remove_output(content=[content]), None)
+
+        new_transfer = StationTransfer(
+            from_station=from_s,
+            to_station=to_s,
+            content=transfer_content,
+            timer=timer
+        )
+        self._station_transfers.append(new_transfer)
+        logger.info(f"{from_s.id} -> {to_s.id} transferring...")
+
+    def check_handle_transfers(self):
+        for transfer in self._station_transfers:
+            if transfer.timer.finished:
+                transfer.to_station.add_input(inputs=[transfer.content])
+                self._station_transfers.remove(transfer)
+                logger.info(f"{transfer.from_station.id} -> {transfer.to_station.id} transfer complete")
+
+    def check_connections_to_station(self, station: Station) -> Dict[Station, List[ResourceUoM]]:
+        edge_connections = self._graph.edges_to_node(self._graph.node_by_name(node_name=station.id))
+        feeder_stations = {self._stations[e.start.name]: self._connection_resource_uom[e.id] for e in edge_connections}
+        return feeder_stations
+
+    def content_in_transit_to_station(self, station_id: str) -> List[Content]:
+        return [x.content for x in self._station_transfers if x.to_station.id == station_id]
+
+    def check_stations_need_replenishment(self):
+        for id, to_station in self.stations.items():
+            shorts = to_station.short_inputs
+            feeder_stations = self.check_connections_to_station(to_station)
+            transfers_to_station = self.content_in_transit_to_station(id)
+
+            to_s_space = to_station.space_for_input
+
+            for feeder_station, resource_uoms in feeder_stations.items():
+                for resource_uom, avail_qty in feeder_station.available_output:
+                    space_for_resource_uom = to_s_space[resource_uom]
+                    if space_for_resource_uom > 0 and avail_qty > 0:
+                        transfer_content = content_factory(resource_uom=resource_uom, qty=min(space_for_resource_uom, avail_qty))
+                        self.init_station_transfer(feeder_station,
+                                                   to_station,
+                                                   content=transfer_content,
+                                                   timer=Timer(STATION_TO_STATION_TRANSFER_SPEED_MS, start_on_init=True))
+
 
     def add_stations(self, stations: List[Tuple[Station, Vector2]]):
         # add stations to the prod line
@@ -62,13 +131,15 @@ class ProductionLine:
         # log
         logger.info(f"PL {self._id}: Stations added: {[station.id for station, pos in stations]}")
 
-    def add_relationships(self, relationships: Dict[Station, List[Station]]):
+    def add_relationships(self, relationships: Dict[Station, List[Tuple[Station, List[ResourceUoM]]]]):
         edges = []
         for to, froms in relationships.items():
-            for fr in froms:
+            for station, resource_uoms in froms:
                 node_to = self._graph.node_by_name(to.id)
-                node_from = self._graph.node_by_name(fr.id)
-                edges.append(Edge(node_from, node_to))
+                node_from = self._graph.node_by_name(station.id)
+                new_edge = Edge(node_from, node_to)
+                self._connection_resource_uom[new_edge.id] = resource_uoms
+                edges.append(new_edge)
 
         self._graph.add_edges(edges)
 
