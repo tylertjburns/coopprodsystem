@@ -84,6 +84,13 @@ class Station:
             time.sleep(.1)
 
     @property
+    def progress(self):
+        if self._production_timer is None:
+            return None
+        
+        return self._production_timer.progress
+
+    @property
     def producing(self):
         return True if self._production_timer is not None else False
 
