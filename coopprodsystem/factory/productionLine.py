@@ -69,7 +69,7 @@ class ProductionLine:
             time.sleep(0.1)
 
     def init_station_transfer(self, from_s: Station, to_s: Station, content: Content, timer: Timer):
-        transfer_content = next(from_s.remove_output(content=[content]), None)
+        transfer_content = next(iter(from_s.remove_output(content=[content])), None)
 
         new_transfer = StationTransfer(
             from_station=from_s,
@@ -104,7 +104,11 @@ class ProductionLine:
 
             for feeder_station, resource_uoms in feeder_stations.items():
                 for resource_uom, avail_qty in feeder_station.available_output.items():
-                    space_for_resource_uom = to_s_space[resource_uom]
+                    space_for_resource_uom = to_s_space.get(resource_uom, None)
+                    if space_for_resource_uom is None:
+                        # this resource_uom produced at feeder is not required at this to_station
+                        continue
+                        # raise ValueError(f"resource_uom {resource_uom} from feeder {feeder_station} is not required for {to_station}")
                     amount_resource_uom_on_its_way = sum([c.qty for c in transfers_to_station if c.resourceUoM == resource_uom])
                     space_minus_in_transit = space_for_resource_uom - amount_resource_uom_on_its_way
                     if space_minus_in_transit > 0 and avail_qty > 0:
@@ -113,6 +117,7 @@ class ProductionLine:
                                                    to_station,
                                                    content=transfer_content,
                                                    timer=Timer(STATION_TO_STATION_TRANSFER_SPEED_MS, start_on_init=True))
+
 
 
     def add_stations(self, stations: List[Tuple[Station, Vector2]]):
@@ -154,6 +159,10 @@ class ProductionLine:
     @property
     def station_positions(self) -> Dict[str, Vector2]:
         return self._station_positions
+
+    def print_state(self):
+        for id, station in self.stations.items():
+            print(station)
 
 if __name__ == "__main__":
     import logging

@@ -1,4 +1,4 @@
-from coopprodsystem.factory import Station, station_resource_def_EA_uom
+from coopprodsystem.factory import Station, station_resource_def_EA_uom, StationProductionStrategy
 import sku_manifest as skus
 from cooptools.coopEnum import CoopEnum
 from enum import auto
@@ -8,7 +8,21 @@ class StationType(CoopEnum):
     DUMMY_1 = auto()
     DUMMY_2 = auto()
     DUMMY_3 = auto()
+    RAW_1 = auto()
+    RAW_2 = auto()
 
+
+outputs = [
+    station_resource_def_EA_uom(content_resource=skus.sku_a, content_qty=3, storage_capacity=21),
+    station_resource_def_EA_uom(content_resource=skus.sku_d, content_qty=3, storage_capacity=21),
+]
+r1 = Station(id=StationType.RAW_1.name, input_reqs=[], output=outputs, production_timer_sec_callback=lambda: 3,start_on_init=True, production_strategy=StationProductionStrategy.PRODUCE_IF_ANY_SPACE_AVAIL)
+
+outputs = [
+    station_resource_def_EA_uom(content_resource=skus.sku_b, content_qty=3, storage_capacity=21),
+    station_resource_def_EA_uom(content_resource=skus.sku_e, content_qty=3, storage_capacity=21),
+]
+r2 = Station(id=StationType.RAW_2.name, input_reqs=[], output=outputs, production_timer_sec_callback=lambda: 3,start_on_init=True, production_strategy=StationProductionStrategy.PRODUCE_IF_ANY_SPACE_AVAIL)
 
 input_reqs = [
     station_resource_def_EA_uom(content_resource=skus.sku_a, content_qty=5, storage_capacity=10),
@@ -46,5 +60,7 @@ STATIONS: Dict[StationType, Station] = {
     StationType.DUMMY_1: s1,
     StationType.DUMMY_2: s2,
     StationType.DUMMY_3: s3,
+    StationType.RAW_1: r1,
+    StationType.RAW_2: r2
 
 }

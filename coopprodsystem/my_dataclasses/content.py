@@ -20,6 +20,12 @@ class Content:
     def match_resouce_uom(self, content):
         return content.resource == self.resource and content.uom == self.uom
 
+    def __repr__(self):
+        return self.__str__()
+
+    def __str__(self):
+        return f"C({self.resource.name}, {self.uom.type.name}, {self.qty})"
+
     @property
     def resource(self) -> Resource:
         return self.resourceUoM.resource
@@ -47,14 +53,14 @@ def content_factory(content: Content = None,
     if all([resource_uom, qty]) or content:
         content = Content(
             resourceUoM=resource_uom or content.resourceUoM,
-            qty=qty or content.qty
+            qty=qty if qty is not None else content.qty
         )
 
     if content is None:
         raise ContentFactoryException()
 
     if qty and content.qty != qty:
-        deb = True
+        raise ContentFactoryException()
 
     return content
 
