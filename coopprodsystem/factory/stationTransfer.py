@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from coopprodsystem.factory import Station
+from coopprodsystem.factory.station import Station
 from coopprodsystem.my_dataclasses import Content
 from cooptools.timedDecay import Timer
 import uuid

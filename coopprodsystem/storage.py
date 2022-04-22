@@ -2,8 +2,13 @@ import uuid
 from coopprodsystem.my_dataclasses import Location, Content, content_factory, UoM, UoMType, Resource, ResourceUoM
 from typing import List, Dict, Optional, Tuple
 from cooptools.common import flattened_list_of_lists
+import threading
 
 class NoLocationFoundException(Exception):
+    def __init__(self):
+        super().__init__()
+
+class NoLocationWithCapacityException(Exception):
     def __init__(self):
         super().__init__()
 
@@ -57,12 +62,15 @@ class Storage:
         # locs matching required uom and resource limitation
         matches = self.location_match(uom_types=[content.uom.type, None], loc_resource_limits=[content.resource])
 
+        if len(matches) == 0:
+            raise NoLocationFoundException()
+
         # locations with capacity
         matches = [loc for loc in matches if
                    self.qty_resource_at_location(loc, content.resource) + content.qty <= loc.uom_capacities[content.uom.type]]
 
         if len(matches) == 0:
-            raise NoLocationFoundException()
+            raise NoLocationWithCapacityException()
 
         return next(iter(matches))
 
@@ -77,7 +85,8 @@ class Storage:
             raise ContentDoesntMatchLocationDesignationException()
 
         # verify capacity
-        if self.qty_resource_at_location(location, content.resource) + content.qty > location.uom_capacities[content.uom.type]:
+        qty_at_loc = self.qty_resource_at_location(location, content.resource)
+        if qty_at_loc + content.qty > location.uom_capacities[content.uom.type]:
             raise NoRoomAtLocationException()
 
         # add content at location
@@ -111,34 +120,38 @@ class Storage:
             raise NoLocationToRemoveContentException()
 
 
+        with threading.Lock():
+            cnt_at_loc = self.content_at_location(location, [content.resource])
+            removed_cnt = []
+            while sum(x.qty for x in removed_cnt) < content.qty:
+                cntnt_to_remove = next(x for x in cnt_at_loc if x not in removed_cnt)
+                removed = self._remove_content_from_location(cntnt_to_remove, location=location)
+                removed_cnt.append(removed)
 
-        cnt_at_loc = self.content_at_location(location, [content.resource])
-        removed_cnt = []
-        while sum(x.qty for x in removed_cnt) < content.qty:
-            cntnt_to_remove = next(x for x in cnt_at_loc if x not in removed_cnt)
-            removed = self._remove_content_from_location(cntnt_to_remove, location=location)
-            removed_cnt.append(removed)
-
-        # reconcile removed content
-        delta = sum(x.qty for x in removed_cnt) - content.qty
-        if delta > 0:
-            to_split = next(x for x in removed_cnt if x.qty >= delta)
-            if to_split.qty == delta:
-                self._add_content_to_loc(content=to_split, location=location)
-            else:
-                to_keep_cntnt = content_factory(to_split, qty=to_split.qty - delta)
-                to_put_back_cntnt = content_factory(to_split, qty=delta)
-                removed_cnt.remove(to_split)
-                removed_cnt.append(to_keep_cntnt)
-                self._add_content_to_loc(content=to_put_back_cntnt, location=location)
+            # reconcile removed content
+            delta = sum(x.qty for x in removed_cnt) - content.qty
+            if delta > 0:
+                to_split = next(x for x in removed_cnt if x.qty >= delta)
+                if to_split.qty == delta:
+                    self._add_content_to_loc(content=to_split, location=location)
+                else:
+                    to_keep_cntnt = content_factory(to_split, qty=to_split.qty - delta)
+                    to_put_back_cntnt = content_factory(to_split, qty=delta)
+                    removed_cnt.remove(to_split)
+                    removed_cnt.append(to_keep_cntnt)
+                    self._add_content_to_loc(content=to_put_back_cntnt, location=location)
 
         # If empty, clear location uom designation
         if len(self.content_at_location(location)) == 0:
             self._loc_designated_uom_types[location] = None
 
         # roll up
-        return content_factory(removed_cnt[0], qty=sum(x.qty for x in removed_cnt))
+        ret = content_factory(removed_cnt[0], qty=sum(x.qty for x in removed_cnt))
 
+        if ret.qty != content.qty:
+            raise ValueError(f"The qty returned does not match the qty requested")
+
+        return ret
 
 
     def content_at_location(self, location: Location, resources: List[Resource] = None) -> List[Content]:
@@ -211,8 +224,8 @@ class Storage:
         ret = {}
         for resource_uom in resource_uoms:
             locs = self.location_match(loc_resource_limits=[resource_uom.resource])
-            available_qty = sum([space for loc, space in self.space_at_location(locations=locs, uom=resource_uom.uom).items()])
-            ret[resource_uom] = available_qty
+            available_space = sum([space for loc, space in self.space_at_location(locations=locs, uom=resource_uom.uom).items()])
+            ret[resource_uom] = available_space
         return ret
 
     @property
@@ -228,9 +241,8 @@ class Storage:
         ret = {}
         for loc, content in self._inventory.items():
             for cont in content:
-                ret.setdefault(cont.resource, {})
-                ret[cont.resource].setdefault(cont.uom, 0)
-                ret[cont.resource][cont.uom] += cont.qty
+                ret.setdefault(cont.resourceUoM, 0)
+                ret[cont.resourceUoM] += cont.qty
         return ret
 
     @property

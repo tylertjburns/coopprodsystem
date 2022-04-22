@@ -9,7 +9,7 @@ from coopprodsystem.storage import Storage, Location
 import logging
 import traceback
 import coopprodsystem.events as evnts
-from .stationResourceDefinition import StationResourceDefinition
+from coopprodsystem.factory.stationResourceDefinition import StationResourceDefinition
 from coopprodsystem.factory.stationStatus import StationStatus
 
 logger = logging.getLogger('station')
@@ -65,9 +65,15 @@ class Station:
 
         self._refresh_thread = None
         if start_on_init:
-            self.start_refresh_thread()
+            self.start_async()
 
-    def start_refresh_thread(self):
+    def __repr__(self):
+        return str(self)
+
+    def __str__(self):
+        return self.id
+
+    def start_async(self):
         self._refresh_thread = threading.Thread(target=self._async_loop, daemon=True)
         self._refresh_thread.start()
 
@@ -165,7 +171,7 @@ class Station:
         with threading.Lock():
             removed = []
             for c in content:
-                rmvd = self._output_storage.remove_content(content_factory(c))
+                rmvd = self._output_storage.remove_content(c)
                 removed.append(rmvd)
                 logger.info(f"station_id {self.id}: Content removed: {content}")
 
@@ -210,7 +216,7 @@ class Station:
     @property
     def space_for_input(self) -> Dict[ResourceUoM, float]:
         return self._input_storage.space_for_resource_uom(
-            [defin.content.resourceUoM for defin in self._output]
+            [defin.content.resourceUoM for defin in self._input_reqs]
         )
 
     @property

@@ -15,11 +15,10 @@ class ProductionEventType(Enum):
 
 @dataclass(frozen=True)
 class EventArgsBase:
-    date_stamp: Optional[datetime.datetime] = field(init=False)
+    date_stamp: datetime.datetime = field(init=False)
 
     def __post_init__(self):
-        if self.date_stamp is None:
-            object.__setattr__(self, 'date_stamp', datetime.datetime.now())
+        object.__setattr__(self, 'date_stamp', datetime.datetime.now())
 
 @dataclass(frozen=True)
 class StationEventArgsBase(EventArgsBase):

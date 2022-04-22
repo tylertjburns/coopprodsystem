@@ -4,7 +4,8 @@ from coopgraph.graphs import Graph, Node, Edge
 from typing import List, Dict, Tuple, Optional
 from coopprodsystem.factory.station import Station
 from coopstructs.vectors import Vector2
-from coopprodsystem.my_dataclasses import content_factory, ResourceUoM, Content, StationTransfer
+from coopprodsystem.my_dataclasses import content_factory, ResourceUoM, Content
+from coopprodsystem.factory import StationTransfer
 import logging
 import coopprodsystem.events as cevents
 import threading
@@ -96,17 +97,18 @@ class ProductionLine:
 
     def check_stations_need_replenishment(self):
         for id, to_station in self.stations.items():
-            shorts = to_station.short_inputs
             feeder_stations = self.check_connections_to_station(to_station)
             transfers_to_station = self.content_in_transit_to_station(id)
 
             to_s_space = to_station.space_for_input
 
             for feeder_station, resource_uoms in feeder_stations.items():
-                for resource_uom, avail_qty in feeder_station.available_output:
+                for resource_uom, avail_qty in feeder_station.available_output.items():
                     space_for_resource_uom = to_s_space[resource_uom]
-                    if space_for_resource_uom > 0 and avail_qty > 0:
-                        transfer_content = content_factory(resource_uom=resource_uom, qty=min(space_for_resource_uom, avail_qty))
+                    amount_resource_uom_on_its_way = sum([c.qty for c in transfers_to_station if c.resourceUoM == resource_uom])
+                    space_minus_in_transit = space_for_resource_uom - amount_resource_uom_on_its_way
+                    if space_minus_in_transit > 0 and avail_qty > 0:
+                        transfer_content = content_factory(resource_uom=resource_uom, qty=min(space_minus_in_transit, avail_qty))
                         self.init_station_transfer(feeder_station,
                                                    to_station,
                                                    content=transfer_content,

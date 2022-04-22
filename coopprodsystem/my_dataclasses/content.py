@@ -1,7 +1,6 @@
 import uuid
 from dataclasses import dataclass, field
-from coopprodsystem.my_dataclasses import Resource, ResourceUoM, ResourceType
-from coopprodsystem.my_dataclasses.unitOfMeasure import UoM
+from coopprodsystem.my_dataclasses import Resource, ResourceUoM, ResourceType, UoM, resourceUom_factory, resource_factory
 
 class ContentFactoryException(Exception):
     def __init__(self):
@@ -15,6 +14,8 @@ class Content:
 
     def __post_init__(self):
         object.__setattr__(self, 'id', uuid.uuid4())
+        if self.qty < 0:
+            raise ValueError(f"qty cannot be zero, {self.qty} provided")
 
     def match_resouce_uom(self, content):
         return content.resource == self.resource and content.uom == self.uom
@@ -37,26 +38,52 @@ def content_factory(content: Content = None,
                     qty: float = None
                     ) -> Content:
 
+    if all([resource_name, resource_description, resource_type]) or resource:
+        resource = resource_factory(resource=resource, description=resource_description, type=resource_type)
 
+    if all([resource, uom]) or resource_uom:
+        resource_uom = resourceUom_factory(resource_uom=resource_uom, resource=resource, uom=uom)
 
-    # try to create a resource
-    if not resource_uom and \
-            resource is None \
-            and all([resource_name, resource_type, resource_description]):
-        resource = Resource(name=resource_name,
-                            description=resource_description,
-                            type=resource_type)
+    if all([resource_uom, qty]) or content:
+        content = Content(
+            resourceUoM=resource_uom or content.resourceUoM,
+            qty=qty or content.qty
+        )
 
-    # verify all values
-    if not content and not resource_uom and not all([resource, uom, qty]):
+    if content is None:
         raise ContentFactoryException()
-    elif not content and not all([resource_uom, qty]):
-        raise ContentFactoryException()
 
-    # create and return
-    return Content(
-        resourceUoM=resource_uom or ResourceUoM(resource=resource, uom=uom),
-        qty=qty or content.qty
-    )
+    if qty and content.qty != qty:
+        deb = True
+
+    return content
+
+
+    #
+    #
+    #
+    #
+    #
+    #
+    # # try to create a resource
+    # if not resource_uom and \
+    #         resource is None \
+    #         and all([resource_name, resource_type, resource_description]):
+    #     resource = Resource(name=resource_name,
+    #                         description=resource_description,
+    #                         type=resource_type)
+    #
+    # # verify all values
+    # if not content and (resource_uom and qty is not None):
+    #     content = Content(resourceUoM=resource_uom, qty=qty)
+    # if not content and all([resource, uom, qty]):
+    #     content = Content(resourceUoM=ResourceUoM(resource=resource, uom=uom), qty=qty)
+    # if content is None:
+    #     raise ContentFactoryException()
+    #
+    # # create and return
+    # return Content(
+    #     resourceUoM=resource_uom
+    # )
 
 

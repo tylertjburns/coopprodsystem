@@ -2,6 +2,7 @@ from coopprodsystem.factory import Station, station_resource_def_EA_uom
 import sku_manifest as skus
 from cooptools.coopEnum import CoopEnum
 from enum import auto
+from typing import Dict
 
 class StationType(CoopEnum):
     DUMMY_1 = auto()
@@ -41,7 +42,7 @@ s3 = Station(id=StationType.DUMMY_3.name,
              start_on_init=True)
 
 
-STATIONS = {
+STATIONS: Dict[StationType, Station] = {
     StationType.DUMMY_1: s1,
     StationType.DUMMY_2: s2,
     StationType.DUMMY_3: s3,
