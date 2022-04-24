@@ -131,15 +131,21 @@ class Storage:
             # reconcile removed content
             delta = sum(x.qty for x in removed_cnt) - content.qty
             if delta > 0:
+                # remove split from location
                 to_split = next(x for x in removed_cnt if x.qty >= delta)
+                removed_cnt.remove(to_split)
+
+                # decide what to keep out and what to put back
                 if to_split.qty == delta:
-                    self._add_content_to_loc(content=to_split, location=location)
+                    to_put_back_cntnt = to_split
                 else:
+
                     to_keep_cntnt = content_factory(to_split, qty=to_split.qty - delta)
-                    to_put_back_cntnt = content_factory(to_split, qty=delta)
-                    removed_cnt.remove(to_split)
                     removed_cnt.append(to_keep_cntnt)
-                    self._add_content_to_loc(content=to_put_back_cntnt, location=location)
+                    to_put_back_cntnt = content_factory(to_split, qty=delta)
+
+                # put back content
+                self._add_content_to_loc(content=to_put_back_cntnt, location=location)
 
         # If empty, clear location uom designation
         if len(self.content_at_location(location)) == 0:
