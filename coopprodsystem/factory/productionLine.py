@@ -29,7 +29,7 @@ def transfer_station(from_s: Station, to_s: Station, delay_s: float):
         logger.info(f"{from_s.id} -> {to_s.id} transfer complete")
 
 
-time_provider: Callable[[], float]
+time_provider = Callable[[], float]
 
 class ProductionLine:
     def __init__(self,

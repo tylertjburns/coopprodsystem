@@ -23,7 +23,7 @@ class ByRunsExpertiseSchedule(ExpertiseSchedule):
         return self.perc_expert(args=args) * self.max_time_reduction_perc
 
     def perc_expert(self, args: ExpertiseArgs) -> float:
-        return min(1.0, expertise.n_runs / self.runs_until_expert)
+        return min(1.0, args.n_runs / self.runs_until_expert)
 
 class ByTimeExpertiseSchedule(ExpertiseSchedule):
     time_until_expert_s: float = 60

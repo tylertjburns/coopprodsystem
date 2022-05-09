@@ -170,7 +170,7 @@ class Station:
         self._consume_input()
 
         # get the production time
-        self._production_time_sec = self._production_time_sec_callback() * self._expertise_calculator.current_time_reduction_perc()
+        self._production_time_sec = self._production_time_sec_callback() * (1 - self._expertise_calculator.current_time_reduction_perc())
 
         # start the timer
         self._production_timer = Timer(int(self._production_time_sec * 1000), start_on_init=True)
