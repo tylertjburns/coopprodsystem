@@ -335,7 +335,9 @@ def station_factory(station_template: Station,
         output=station_template.outputs,
         production_timer_sec_callback=station_template.production_timer_sec_callback,
         type=station_template.type,
-        start_on_init=start_on_init
+        start_on_init=start_on_init,
+        expertise_schedule=station_template.expertise.schedule,
+        production_strategy=station_template.production_strategy
     )
 
 
