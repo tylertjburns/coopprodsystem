@@ -322,6 +322,10 @@ class Station:
 
         return ret
 
+    @property
+    def expertise(self):
+        return self._expertise_calculator
+
 def station_factory(station_template: Station,
                     id: str = None,
                     start_on_init: bool = False) -> Station:
