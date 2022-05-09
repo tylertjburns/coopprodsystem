@@ -1,4 +1,4 @@
-coopgraph==1.8
+coopgraph==1.9
 coopstructs==0.46
 cooptools==0.32
 numpy==1.22.3

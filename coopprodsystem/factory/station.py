@@ -12,6 +12,7 @@ from coopprodsystem.factory.stationResourceDefinition import StationResourceDefi
 from coopprodsystem.factory.stationStatus import StationStatus
 from cooptools.coopEnum import CoopEnum
 from enum import auto
+from coopprodsystem.factory.expertiseSchedules import ExpertiseSchedule, ByRunsExpertiseSchedule, ExpertiseCalculator
 
 logger = logging.getLogger('station')
 
@@ -49,7 +50,8 @@ class Station:
                  id: str = None,
                  type: str = None,
                  production_strategy: StationProductionStrategy = None,
-                 start_on_init: bool = False
+                 expertise_schedule: ExpertiseSchedule = None,
+                 start_on_init: bool = False,
                  ):
         self.id = id if id else uuid.uuid4()
         self.type = type
@@ -69,8 +71,13 @@ class Station:
         self._production_timer: Optional[Timer] = None
         self.production_strategy: StationProductionStrategy = production_strategy or StationProductionStrategy.PRODUCE_IF_ALL_SPACE_AVAIL
 
+        self._expertise_calculator = ExpertiseCalculator(schedule=expertise_schedule)
+
         self.current_exception = None
         self._refresh_thread = None
+
+        self._last_perf = None
+
         if start_on_init:
             self.start_async()
 
@@ -86,6 +93,7 @@ class Station:
 
     def start_async(self):
         self._refresh_thread = threading.Thread(target=self._async_loop, daemon=True)
+        self._last_perf = time.perf_counter()
         self._refresh_thread.start()
 
     def _async_loop(self):
@@ -94,9 +102,12 @@ class Station:
                 self._try_start_producing()
             elif self.production_complete:
                 self.finish_producing()
+                self._expertise_calculator.increment_s_producting(time.perf_counter() - self._last_perf)
             else:
                 logger.info(f"station_id {self.id}: producing...")
+                self._expertise_calculator.increment_s_producting(time.perf_counter() - self._last_perf)
 
+            self._last_perf = time.perf_counter()
             time.sleep(.1)
 
     @property
@@ -159,7 +170,7 @@ class Station:
         self._consume_input()
 
         # get the production time
-        self._production_time_sec = self._production_time_sec_callback()
+        self._production_time_sec = self._production_time_sec_callback() * self._expertise_calculator.current_time_reduction_perc()
 
         # start the timer
         self._production_timer = Timer(int(self._production_time_sec * 1000), start_on_init=True)
@@ -221,6 +232,9 @@ class Station:
 
         # reset production
         self.reset_production()
+
+        # update expertise
+        self._expertise_calculator.increment_n_runs()
 
         # raise event
         evnts.raise_event_production_finished_at_station(args=evnts.OnProductionFinishedAtStationEventArgs(

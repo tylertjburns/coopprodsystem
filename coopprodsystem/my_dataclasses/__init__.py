@@ -3,3 +3,4 @@ from .unitOfMeasure import UoM, UoMType
 from .resourceUom import ResourceUoM, resourceUom_factory
 from .content import Content, ContentFactoryException, content_factory
 from .locations import Location
+from .expertiseArgs import ExpertiseArgs, expertiseArgs_factory

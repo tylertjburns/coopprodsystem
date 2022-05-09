@@ -1,7 +1,7 @@
 import uuid
 import time
 from coopgraph.graphs import Graph, Node, Edge
-from typing import List, Dict, Tuple, Optional
+from typing import List, Dict, Tuple, Callable
 from coopprodsystem.factory.station import Station
 from coopstructs.vectors import Vector2
 from coopprodsystem.my_dataclasses import content_factory, ResourceUoM, Content
@@ -12,8 +12,6 @@ import threading
 from cooptools.timedDecay import Timer
 
 logger = logging.getLogger('productionLine')
-
-STATION_TO_STATION_TRANSFER_SPEED_MS = 5000
 
 def transfer_station(from_s: Station, to_s: Station, delay_s: float):
     to_s_space = to_s.space_for_input
@@ -31,14 +29,15 @@ def transfer_station(from_s: Station, to_s: Station, delay_s: float):
         logger.info(f"{from_s.id} -> {to_s.id} transfer complete")
 
 
-
+time_provider: Callable[[], float]
 
 class ProductionLine:
     def __init__(self,
                  init_stations: List[Tuple[Station, Vector2]] = None,
                  init_relationship_map: Dict[Station, List[Tuple[Station, List[ResourceUoM]]]] = None,
                  id: str = None,
-                 start_on_init: bool = True
+                 start_on_init: bool = True,
+                 transfer_time_s_callback: time_provider = None
                  ):
 
         self._id = id or uuid.uuid4()
@@ -47,7 +46,8 @@ class ProductionLine:
         self._station_positions: Dict[str, Vector2] = {}
         self._station_transfers: List[StationTransfer] = []
         self._connection_resource_uom: Dict[str, List[ResourceUoM]] = {}
-
+        _def_time_provider = lambda: 3
+        self._transfer_time_s_callback = transfer_time_s_callback or _def_time_provider
 
         # add init stations:
         if init_stations: self.add_stations(init_stations)
@@ -116,7 +116,7 @@ class ProductionLine:
                         self.init_station_transfer(feeder_station,
                                                    to_station,
                                                    content=transfer_content,
-                                                   timer=Timer(STATION_TO_STATION_TRANSFER_SPEED_MS, start_on_init=True))
+                                                   timer=Timer(self._transfer_time_s_callback() * 1000, start_on_init=True))
 
 
 
