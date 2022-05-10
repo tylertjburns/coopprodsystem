@@ -3,34 +3,55 @@ from coopprodsystem.my_dataclasses import Location, Content, content_factory, Uo
 from typing import List, Dict, Optional, Tuple
 from cooptools.common import flattened_list_of_lists
 import threading
+import coopprodsystem.events as cevents
 
 class NoLocationFoundException(Exception):
-    def __init__(self):
+    def __init__(self, storage_id: str):
+        cevents.raise_event_NoLocationFoundException(cevents.OnNoLocationFoundExceptionEventArgs(
+            storage_id=storage_id
+        ))
         super().__init__()
 
 class NoLocationWithCapacityException(Exception):
-    def __init__(self):
+    def __init__(self, storage_id: str):
+        cevents.raise_event_NoLocationWithCapacityException(cevents.OnNoLocationWithCapacityExceptionEventArgs(
+            storage_id=storage_id
+        ))
         super().__init__()
 
 class ContentDoesntMatchLocationException(Exception):
-    def __init__(self):
+    def __init__(self, storage_id: str):
+        cevents.raise_event_ContentDoesntMatchLocationException(cevents.OnContentDoesntMatchLocationExceptionEventArgs(
+            storage_id=storage_id
+        ))
         super().__init__()
 
 class ContentDoesntMatchLocationDesignationException(Exception):
-    def __init__(self):
+    def __init__(self, storage_id: str):
+        cevents.raise_event_ContentDoesntMatchLocationDesignationException(cevents.OnContentDoesntMatchLocationDesignationExceptionEventArgs(
+            storage_id=storage_id
+        ))
         super().__init__()
 
-
 class NoRoomAtLocationException(Exception):
-    def __init__(self):
+    def __init__(self, storage_id: str):
+        cevents.raise_event_NoRoomAtLocationException(cevents.OnNoRoomAtLocationExceptionEventArgs(
+            storage_id=storage_id
+        ))
         super().__init__()
 
 class MissingContentException(Exception):
-    def __init__(self):
+    def __init__(self, storage_id: str):
+        cevents.raise_event_MissingContentException(cevents.OnMissingContentExceptionEventArgs(
+            storage_id=storage_id
+        ))
         super().__init__()
 
 class NoLocationToRemoveContentException(Exception):
-    def __init__(self):
+    def __init__(self, storage_id: str):
+        cevents.raise_event_NoLocationToRemoveContentException(cevents.OnNoLocationToRemoveContentExceptionEventArgs(
+            storage_id=storage_id
+        ))
         super().__init__()
 
 
@@ -63,31 +84,31 @@ class Storage:
         matches = self.location_match(uom_types=[content.uom.type, None], loc_resource_limits=[content.resource])
 
         if len(matches) == 0:
-            raise NoLocationFoundException()
+            raise NoLocationFoundException(storage_id=self._id)
 
         # locations with capacity
         matches = [loc for loc in matches if
                    self.qty_resource_at_location(loc, content.resource) + content.qty <= loc.uom_capacities[content.uom.type]]
 
         if len(matches) == 0:
-            raise NoLocationWithCapacityException()
+            raise NoLocationWithCapacityException(storage_id=self._id)
 
         return next(iter(matches))
 
     def _add_content_to_loc(self, location: Location, content: Content):
         # verify content matches uom capacity
         if content.uom.type not in location.uom_capacities:
-            raise ContentDoesntMatchLocationException()
+            raise ContentDoesntMatchLocationException(storage_id=self._id)
 
         # verify the uom matches loc designated uom
         designated_uom_type = self._loc_designated_uom_types[location]
         if designated_uom_type and content.uom.type != self._loc_designated_uom_types[location]:
-            raise ContentDoesntMatchLocationDesignationException()
+            raise ContentDoesntMatchLocationDesignationException(storage_id=self._id)
 
         # verify capacity
         qty_at_loc = self.qty_resource_at_location(location, content.resource)
         if qty_at_loc + content.qty > location.uom_capacities[content.uom.type]:
-            raise NoRoomAtLocationException()
+            raise NoRoomAtLocationException(storage_id=self._id)
 
         # add content at location
         self._inventory[location].append(content)
@@ -95,7 +116,7 @@ class Storage:
 
     def _remove_content_from_location(self, content: Content, location: Location) -> Content:
         if content not in self._inventory[location]:
-            raise MissingContentException()
+            raise MissingContentException(storage_id=self._id)
 
         idx_of_content = self._inventory[location].index(content)
         removed = self._inventory[location].pop(idx_of_content)
@@ -117,7 +138,7 @@ class Storage:
 
         # handle no location found
         if location is None:
-            raise NoLocationToRemoveContentException()
+            raise NoLocationToRemoveContentException(storage_id=self._id)
 
 
         with threading.Lock():

@@ -4,14 +4,21 @@ from pubsub import pub
 from enum import Enum, auto
 import datetime
 from dataclasses import dataclass, field
-from typing import Optional
+
+logger = logging.getLogger('coopprodsystem.events')
 
 class ProductionEventType(Enum):
     STATION_ADDED = auto()
     STATION_REMOVED = auto()
     PRODUCTION_FINISHED_AT_STATION = auto()
     PRODUCTION_STARTED_AT_STATION = auto()
-
+    EXCEPTION_NO_LOCATION_FOUND = auto()
+    EXCEPTION_NO_LOCATION_WITH_CAPACITY_FOUND = auto()
+    EXCEPTION_CONTENT_DOESNT_MATCH_LOCATION = auto()
+    EXCEPTION_CONTENT_DOESNT_MATCH_LOCATION_DESIGNATION = auto()
+    EXCEPTION_NO_ROOM_AT_LOCATION = auto()
+    EXCEPTION_MISSING_CONTENT = auto()
+    EXCEPTION_NO_LOCATION_TO_REMOVE_CONTENT = auto()
 
 @dataclass(frozen=True)
 class EventArgsBase:
@@ -23,6 +30,10 @@ class EventArgsBase:
 @dataclass(frozen=True)
 class StationEventArgsBase(EventArgsBase):
     station_id: str
+
+@dataclass(frozen=True)
+class StorageEventArgsBase(EventArgsBase):
+    storage_id: str
 
 @dataclass(frozen=True)
 class OnStationAddedEventArgs(StationEventArgsBase):
@@ -41,24 +52,75 @@ class OnProductionStartedAtStationEventArgs(StationEventArgsBase):
     ...
 
 
-def raise_event(event: ProductionEventType, **kwargs):
-    logging.debug(f"raise event: {event}")
+
+@dataclass(frozen=True)
+class OnNoLocationFoundExceptionEventArgs(StorageEventArgsBase):
+    ...
+
+@dataclass(frozen=True)
+class OnNoLocationWithCapacityExceptionEventArgs(StorageEventArgsBase):
+    ...
+
+@dataclass(frozen=True)
+class OnContentDoesntMatchLocationExceptionEventArgs(StorageEventArgsBase):
+    ...
+
+@dataclass(frozen=True)
+class OnContentDoesntMatchLocationDesignationExceptionEventArgs(StorageEventArgsBase):
+    ...
+
+@dataclass(frozen=True)
+class OnNoRoomAtLocationExceptionEventArgs(StorageEventArgsBase):
+    ...
+
+@dataclass(frozen=True)
+class OnMissingContentExceptionEventArgs(StorageEventArgsBase):
+    ...
+
+@dataclass(frozen=True)
+class OnNoLocationToRemoveContentExceptionEventArgs(StorageEventArgsBase):
+    ...
+
+
+def raise_event(event: ProductionEventType, log_lvl, **kwargs):
+    args = kwargs.get('args', None)
+    logger.log(level=log_lvl, msg=f"raise event: {event.name} with args: {args}")
     pub.sendMessage(event.name, **kwargs)
 
 
 def raise_station_removed(args: OnStationRemovedEventArgs):
-    raise_event(ProductionEventType.STATION_REMOVED, args=args)
+    raise_event(ProductionEventType.STATION_REMOVED, log_lvl=logging.INFO, args=args)
 
 def raise_station_added(args: OnStationAddedEventArgs):
-    raise_event(ProductionEventType.STATION_ADDED, args=args)
+    raise_event(ProductionEventType.STATION_ADDED, log_lvl=logging.INFO, args=args)
 
 def raise_event_production_finished_at_station(args: OnProductionFinishedAtStationEventArgs):
-    raise_event(ProductionEventType.PRODUCTION_FINISHED_AT_STATION, args=args)
-
+    raise_event(ProductionEventType.PRODUCTION_FINISHED_AT_STATION, log_lvl=logging.INFO, args=args)
 
 def raise_event_production_started_at_station(args: OnProductionStartedAtStationEventArgs):
-    raise_event(ProductionEventType.PRODUCTION_STARTED_AT_STATION, args=args)
+    raise_event(ProductionEventType.PRODUCTION_STARTED_AT_STATION, log_lvl=logging.INFO, args=args)
 
+
+def raise_event_NoLocationFoundException(args: OnNoLocationFoundExceptionEventArgs):
+    raise_event(ProductionEventType.EXCEPTION_NO_LOCATION_FOUND, log_lvl=logging.ERROR, args=args)
+
+def raise_event_NoLocationWithCapacityException(args: OnNoLocationWithCapacityExceptionEventArgs):
+    raise_event(ProductionEventType.EXCEPTION_NO_LOCATION_WITH_CAPACITY_FOUND, log_lvl=logging.ERROR, args=args)
+
+def raise_event_ContentDoesntMatchLocationException(args: OnContentDoesntMatchLocationExceptionEventArgs):
+    raise_event(ProductionEventType.EXCEPTION_CONTENT_DOESNT_MATCH_LOCATION, log_lvl=logging.ERROR, args=args)
+
+def raise_event_ContentDoesntMatchLocationDesignationException(args: OnContentDoesntMatchLocationDesignationExceptionEventArgs):
+    raise_event(ProductionEventType.EXCEPTION_CONTENT_DOESNT_MATCH_LOCATION_DESIGNATION, log_lvl=logging.ERROR, args=args)
+
+def raise_event_NoRoomAtLocationException(args: OnNoRoomAtLocationExceptionEventArgs):
+    raise_event(ProductionEventType.EXCEPTION_NO_ROOM_AT_LOCATION, log_lvl=logging.ERROR, args=args)
+
+def raise_event_MissingContentException(args: OnMissingContentExceptionEventArgs):
+    raise_event(ProductionEventType.EXCEPTION_MISSING_CONTENT, log_lvl=logging.ERROR, args=args)
+
+def raise_event_NoLocationToRemoveContentException(args: OnNoLocationToRemoveContentExceptionEventArgs):
+    raise_event(ProductionEventType.EXCEPTION_NO_LOCATION_TO_REMOVE_CONTENT, log_lvl=logging.ERROR, args=args)
 
 if __name__ == "__main__":
     pass
