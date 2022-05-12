@@ -64,9 +64,12 @@ class ProductionLine:
 
     def _async_loop(self):
         while True:
-            self.check_stations_need_replenishment()
-            self.check_handle_transfers()
+            self.update()
             time.sleep(0.1)
+
+    def update(self):
+        self.check_stations_need_replenishment()
+        self.check_handle_transfers()
 
     def init_station_transfer(self, from_s: Station, to_s: Station, content: Content, timer: Timer):
         transfer_content = next(iter(from_s.remove_output(content=[content])), None)
@@ -108,7 +111,7 @@ class ProductionLine:
                     if space_for_resource_uom is None:
                         # this resource_uom produced at feeder is not required at this to_station
                         continue
-                        # raise ValueError(f"resource_uom {resource_uom} from feeder {feeder_station} is not required for {to_station}")
+
                     amount_resource_uom_on_its_way = sum([c.qty for c in transfers_to_station if c.resourceUoM == resource_uom])
                     space_minus_in_transit = space_for_resource_uom - amount_resource_uom_on_its_way
                     if space_minus_in_transit > 0 and avail_qty > 0:
