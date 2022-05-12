@@ -98,17 +98,20 @@ class Station:
 
     def _async_loop(self):
         while True:
-            if not self.producing:
-                self._try_start_producing()
-            elif self.production_complete:
-                self.finish_producing()
-                self._expertise_calculator.increment_s_producting(time.perf_counter() - self._last_perf)
-            else:
-                logger.info(f"station_id {self.id}: producing...")
-                self._expertise_calculator.increment_s_producting(time.perf_counter() - self._last_perf)
-
-            self._last_perf = time.perf_counter()
+            self.update()
             time.sleep(.1)
+
+    def update(self):
+        if not self.producing:
+            self._try_start_producing()
+        elif self.production_complete:
+            self.finish_producing()
+            self._expertise_calculator.increment_s_producting(time.perf_counter() - self._last_perf)
+        else:
+            logger.info(f"station_id {self.id}: producing...")
+            self._expertise_calculator.increment_s_producting(time.perf_counter() - self._last_perf)
+
+        self._last_perf = time.perf_counter()
 
     @property
     def progress(self):
@@ -141,30 +144,10 @@ class Station:
             raise AtMaxCapacityException()
 
         # check if room for outputs to be produced
-        space_minus_prod_run = self.output_space_minus_production_run
-        open_space = self.space_for_output
-        if self.production_strategy == StationProductionStrategy.PRODUCE_IF_ALL_SPACE_AVAIL and \
-            not all(x >= 0 for x in space_minus_prod_run.values()):
-            raise OutputStorageToFullToProduceException()
-        elif self.production_strategy == StationProductionStrategy.PRODUCE_IF_ANY_SPACE_AVAIL and \
-            not any(x > 0 for x in open_space.values()):
-            raise OutputStorageToFullToProduceException()
-        elif self.production_strategy not in [StationProductionStrategy.PRODUCE_IF_ANY_SPACE_AVAIL,
-                                              StationProductionStrategy.PRODUCE_IF_ALL_SPACE_AVAIL]:
-            raise NotImplementedError(f"Production Strategy: {self.production_strategy} is unrecognized for producing")
-
-        # for output in self._output:
-        #     stored_out = self._output_storage.qty_of_resource_uom(resource=output.content.resource,
-        #                                                           uom_type=output.content.uom.type)
-        #     if stored_out + output.content.qty > output.storage_capacity:
-        #         raise OutputStorageToFullToProduceException()
+        self._raise_if_no_room_for_outputs()
 
         # check if enough input to produce
-        for input_req in self._input_reqs:
-            stored_in = self._input_storage.qty_of_resource_uom(resource=input_req.content.resource,
-                                                                uom_type=input_req.content.uom.type)
-            if stored_in < input_req.content.qty:
-                raise NotEnoughInputToProduceException()
+        self._raise_if_not_enough_inputs()
 
         # consume inputs
         self._consume_input()
@@ -182,6 +165,25 @@ class Station:
 
         logger.info(f"station_id {self.id}: Production Started")
 
+    def _raise_if_no_room_for_outputs(self):
+        space_minus_prod_run = self.output_space_minus_production_run
+        open_space = self.space_for_output
+        if self.production_strategy == StationProductionStrategy.PRODUCE_IF_ALL_SPACE_AVAIL and \
+            not all(x >= 0 for x in space_minus_prod_run.values()):
+            raise OutputStorageToFullToProduceException()
+        elif self.production_strategy == StationProductionStrategy.PRODUCE_IF_ANY_SPACE_AVAIL and \
+            not any(x > 0 for x in open_space.values()):
+            raise OutputStorageToFullToProduceException()
+        elif self.production_strategy not in [StationProductionStrategy.PRODUCE_IF_ANY_SPACE_AVAIL,
+                                              StationProductionStrategy.PRODUCE_IF_ALL_SPACE_AVAIL]:
+            raise NotImplementedError(f"Production Strategy: {self.production_strategy} is unrecognized for producing")
+
+    def _raise_if_not_enough_inputs(self):
+        for input_req in self._input_reqs:
+            stored_in = self._input_storage.qty_of_resource_uoms(resource_uoms=[input_req.content.resourceUoM])[input_req.content.resourceUoM]
+            if stored_in < input_req.content.qty:
+                raise NotEnoughInputToProduceException()
+
     def add_input(self, inputs: List[Content]):
         with threading.Lock():
             for input in inputs:
@@ -197,7 +199,7 @@ class Station:
 
     @property
     def available_output(self) -> Dict[ResourceUoM, float]:
-        return self._output_storage.inventory_by_resource
+        return self._output_storage.inventory_by_resource_uom
 
     @property
     def available_output_as_content(self) -> List[Content]:
@@ -252,7 +254,7 @@ class Station:
         short = []
 
         for input in self._input_reqs:
-            stored = self._input_storage.qty_of_resource_uom(input.content.resource, input.content.uom.type)
+            stored = self._input_storage.qty_of_resource_uoms(resource_uoms=[input.content.resourceUoM])[input.content.resourceUoM]
             if stored < input.content.qty:
                 short.append(content_factory(input.content, qty=input.content.qty - stored))
 
@@ -284,7 +286,7 @@ class Station:
 
     @property
     def stored_inputs(self) -> Dict[ResourceUoM, float]:
-        return self._input_storage.inventory_by_resource
+        return self._input_storage.inventory_by_resource_uom
 
     @property
     def stored_inputs_as_content(self) -> List[Content]:
@@ -304,6 +306,7 @@ class Station:
                                          for x in self.outputs if x.content.resourceUoM == resource_uom)
                 for resource_uom, qty in output_space.items()}
         return ret
+
     @property
     def status(self) -> List[StationStatus]:
         ret = []

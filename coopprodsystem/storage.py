@@ -88,7 +88,8 @@ class Storage:
 
         # locations with capacity
         matches = [loc for loc in matches if
-                   self.qty_resource_at_location(loc, content.resource) + content.qty <= loc.uom_capacities[content.uom.type]]
+                   self.qty_resource_uom_at_location(loc, content.resourceUoM) + content.qty <= loc.uom_capacities[
+                       content.uom.type]]
 
         if len(matches) == 0:
             raise NoLocationWithCapacityException(storage_id=self._id)
@@ -106,7 +107,7 @@ class Storage:
             raise ContentDoesntMatchLocationDesignationException(storage_id=self._id)
 
         # verify capacity
-        qty_at_loc = self.qty_resource_at_location(location, content.resource)
+        qty_at_loc = self.qty_resource_uom_at_location(location, content.resourceUoM)
         if qty_at_loc + content.qty > location.uom_capacities[content.uom.type]:
             raise NoRoomAtLocationException(storage_id=self._id)
 
@@ -128,12 +129,12 @@ class Storage:
             content: Content,
             location: Location = None) -> Content:
         if location is None:
-            locations_that_satisfy = self.location_match(resources=[content.resource], uom_types=[content.uom.type])
+            locations_that_satisfy = self.location_match(resource_uoms=[content.resourceUoM], uom_types=[content.uom.type])
             location = next(iter([loc for loc in locations_that_satisfy
-                                  if self.qty_resource_at_location(loc, content.resource) >= content.qty])
+                                  if self.qty_resource_uom_at_location(loc, resource_uom=content.resourceUoM) >= content.qty])
                             , None)
         else:
-            #TODO: RESOLVE bad location
+            # TODO: RESOLVE bad location
             raise NotImplementedError()
 
         # handle no location found
@@ -142,7 +143,7 @@ class Storage:
 
 
         with threading.Lock():
-            cnt_at_loc = self.content_at_location(location, [content.resource])
+            cnt_at_loc = self.content_at_location(location, resource_uoms=[content.resourceUoM])
             removed_cnt = []
             while sum(x.qty for x in removed_cnt) < content.qty:
                 cntnt_to_remove = next(x for x in cnt_at_loc if x not in removed_cnt)
@@ -181,15 +182,15 @@ class Storage:
         return ret
 
 
-    def content_at_location(self, location: Location, resources: List[Resource] = None) -> List[Content]:
+    def content_at_location(self, location: Location, resource_uoms: List[ResourceUoM] = None) -> List[Content]:
         content = self._inventory[location]
-        if resources:
-            content = [x for x in content if x.resource in resources]
+        if resource_uoms:
+            content = [x for x in content if x.resourceUoM in resource_uoms]
 
         return content
 
-    def qty_resource_at_location(self, location: Location, resource: Resource):
-        qty = sum([x.qty for x in self.content_at_location(location) if x.resource==resource])
+    def qty_resource_uom_at_location(self, location: Location, resource_uom: ResourceUoM):
+        qty = sum([x.qty for x in self.content_at_location(location, resource_uoms=[resource_uom])])
         return qty
 
     def space_at_location(self, locations: List[Location], uom: UoM) -> Dict[Location, float]:
@@ -203,16 +204,17 @@ class Storage:
 
         return ret
 
-    def find_resources(self,
-                       resources: List[Resource],
-                       uom_types: List[UoMType] = None,
-                       location_range: List[Location] = None) -> Dict[Location, List[Content]]:
-        matches = self.location_match(resources=resources, uom_types=uom_types, location_range=location_range)
-        return {loc: [cont for cont in content if cont.resource in resources] for loc, content in self._inventory.items()
+    def find_resource_uoms(self,
+                           resource_uoms: List[ResourceUoM],
+                           location_range: List[Location] = None) -> Dict[Location, List[Content]]:
+        matches = self.location_match(resource_uoms=resource_uoms,
+                                      location_range=location_range)
+        return {loc: [cont for cont in content if cont.resourceUoM in resource_uoms] for loc, content in
+                self._inventory.items()
                 if loc in matches}
 
     def location_match(self,
-                       resources: List[Resource] = None,
+                       resource_uoms: List[ResourceUoM] = None,
                        uom_types: List[UoMType] = None,
                        loc_resource_limits: List[Resource] = None,
                        location_range: List[Location] = None) -> List[Location]:
@@ -223,24 +225,41 @@ class Storage:
 
         if uom_types:
             matches = [loc for loc in matches
-                        if self._loc_designated_uom_types[loc] in uom_types]
+                       if self._loc_designated_uom_types[loc] in uom_types]
 
-        if resources:
+        if resource_uoms:
             matches = [loc for loc in matches
-                        if any(c.resource in resources for c in self._inventory[loc])]
+                       if any(c.resourceUoM in resource_uoms for c in self._inventory[loc])]
 
         if loc_resource_limits:
             matches = [loc for loc in matches
-                        if loc.resource_limitations and all(x in loc.resource_limitations for x in loc_resource_limits)]
+                       if not loc.resource_limitations or all(x in loc.resource_limitations
+                                                           for x in loc_resource_limits)]
 
         return matches
 
-    def qty_of_resource_uom(self, resource: Resource, uom_type: UoMType, location_range: List[Location] = None) -> float:
-        stored = self.find_resources(resources=[resource], uom_types=[uom_type, None], location_range=location_range)
-        flat_vals = flattened_list_of_lists([conts for loc, conts in stored.items()])
+    def qty_of_resource_uoms(self,
+                             resource_uoms: List[ResourceUoM] = None,
+                             location_range: List[Location] = None) -> Dict[ResourceUoM, float]:
 
-        qty = sum([x.qty for x in flat_vals])
-        return qty
+        # default the ret to at least include everything in resource_uoms param
+        ret = {x: 0 for x in resource_uoms} if resource_uoms else {}
+
+        # scan entire inventory
+        for loc, content in self._inventory.items():
+            # skip locs not in defined range
+            if location_range is not None and loc not in location_range:
+                continue
+
+            for cont in content:
+                # skip resourceUoM if not valid
+                if resource_uoms and cont.resourceUoM not in resource_uoms:
+                    continue
+
+                # accumulate the found content
+                ret.setdefault(cont.resourceUoM, 0)
+                ret[cont.resourceUoM] += cont.qty
+        return ret
 
     def space_for_resource_uom(self,
                                resource_uoms: List[ResourceUoM],
@@ -251,7 +270,8 @@ class Storage:
         ret = {}
         for resource_uom in resource_uoms:
             locs = self.location_match(loc_resource_limits=[resource_uom.resource])
-            available_space = sum([space for loc, space in self.space_at_location(locations=locs, uom=resource_uom.uom).items()])
+            available_space = sum(
+                [space for loc, space in self.space_at_location(locations=locs, uom=resource_uom.uom).items()])
             ret[resource_uom] = available_space
         return ret
 
@@ -264,44 +284,45 @@ class Storage:
         return [loc for loc, cont in self._inventory.items() if len(cont) == 0]
 
     @property
-    def inventory_by_resource(self) -> Dict[ResourceUoM, float]:
-        ret = {}
-        for loc, content in self._inventory.items():
-            for cont in content:
-                ret.setdefault(cont.resourceUoM, 0)
-                ret[cont.resourceUoM] += cont.qty
-        return ret
+    def inventory_by_resource_uom(self) -> Dict[ResourceUoM, float]:
+        return self.qty_of_resource_uoms()
 
     @property
     def rolled_inventory(self) -> List[Content]:
-        inv_by_resource = self.inventory_by_resource
+        print(f"usage of property will be depricated. Please make necessary changes to use inventory_by_resource_uom instead")
+
+        inv_by_resource = self.inventory_by_resource_uom
 
         ret = []
         for resource_uom, qty in inv_by_resource.items():
             ret.append(Content(resourceUoM=resource_uom, qty=qty))
         return ret
 
+    @property
+    def locations(self) -> List[Location]:
+        return list(self._inventory.keys())
 
 if __name__ == "__main__":
     from coopprodsystem.my_dataclasses import Resource, ResourceType, UoM
     import pprint
+
     uom_type_capacities = {UoMType.EACH: 10}
     locs = [Location(uom_type_capacities, id=str(ii)) for ii in range(10)]
 
     inv = Storage(locs)
 
     sku_a = Resource('a', 'a desc', ResourceType.DEFAULT)
-
+    ru_a = ResourceUoM(sku_a, UoM(UoMType.EACH))
     for ii in range(4):
         content = Content(
-            resourceUoM=ResourceUoM(sku_a, UoM(UoMType.EACH)),
+            resourceUoM=ru_a,
             qty=3
         )
         inv.add_content(content)
 
     print(inv)
-    pprint.pprint(inv.find_resources([sku_a]))
+    pprint.pprint(inv.find_resource_uoms([ru_a]))
 
     inv.remove_content(Content(ResourceUoM(sku_a, UoM(UoMType.EACH)), 9))
 
-    print(inv.rolled_inventory)
+    print(inv.inventory_by_resource_uom)
