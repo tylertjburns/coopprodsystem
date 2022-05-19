@@ -1,5 +1,5 @@
 import unittest
-from coopprodsystem.storage import Storage
+from coopprodsystem.storage.storage import Storage
 from coopprodsystem.my_dataclasses import Resource, ResourceType, UoM, Location, UoMType, ResourceUoM, Content
 
 class Test_Storage(unittest.TestCase):

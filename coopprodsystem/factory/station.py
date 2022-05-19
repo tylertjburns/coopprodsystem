@@ -5,14 +5,14 @@ import uuid
 from coopprodsystem.my_dataclasses import Content, content_factory, ResourceUoM
 from typing import List, Optional, Callable, Dict
 from cooptools.timedDecay import Timer
-from coopprodsystem.storage import Storage, Location
+from coopprodsystem.storage.storage import Storage, Location
 import logging
 import coopprodsystem.events as evnts
 from coopprodsystem.factory.stationResourceDefinition import StationResourceDefinition
 from coopprodsystem.factory.stationStatus import StationStatus
 from cooptools.coopEnum import CoopEnum
 from enum import auto
-from coopprodsystem.factory.expertiseSchedules import ExpertiseSchedule, ByRunsExpertiseSchedule, ExpertiseCalculator
+from coopprodsystem.factory.expertiseSchedules import ExpertiseSchedule, ExpertiseCalculator
 
 logger = logging.getLogger('station')
 
@@ -328,6 +328,10 @@ class Station:
     @property
     def expertise(self):
         return self._expertise_calculator
+
+    @property
+    def started(self):
+        return not self._refresh_thread is None
 
 def station_factory(station_template: Station,
                     id: str = None,
