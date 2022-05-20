@@ -10,6 +10,7 @@ import logging
 import coopprodsystem.events as cevents
 import threading
 from cooptools.timedDecay import Timer
+from cooptools.coopthreading import AsyncWorker
 
 logger = logging.getLogger('productionLine')
 
@@ -56,16 +57,7 @@ class ProductionLine:
         if init_relationship_map: self.add_relationships(init_relationship_map)
 
         # start
-        if start_on_init: self.start_refresh_thread()
-
-    def start_refresh_thread(self):
-        self._refresh_thread = threading.Thread(target=self._async_loop, daemon=True)
-        self._refresh_thread.start()
-
-    def _async_loop(self):
-        while True:
-            self.update()
-            time.sleep(0.1)
+        self._async_worker = AsyncWorker(update_callback=self.update, start_on_init=start_on_init)
 
     def update(self):
         self.check_stations_need_replenishment()

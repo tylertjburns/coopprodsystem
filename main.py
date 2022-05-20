@@ -11,6 +11,7 @@ import sku_manifest as skus
 format = '%(asctime)s [%(levelname)s]: %(name)s -- %(message)s (%(filename)s:%(lineno)d)'
 logging.basicConfig(format=format, level=logging.INFO)
 logging.getLogger('station').setLevel(logging.CRITICAL)
+logging.getLogger('coopprodsystem.station').setLevel(logging.CRITICAL)
 
 deh = DummyEventHandler()
 pl = ProductionLine(

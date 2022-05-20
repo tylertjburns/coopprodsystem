@@ -13,8 +13,9 @@ from coopprodsystem.factory.stationStatus import StationStatus
 from cooptools.coopEnum import CoopEnum
 from enum import auto
 from coopprodsystem.factory.expertiseSchedules import ExpertiseSchedule, ExpertiseCalculator
+from cooptools.coopthreading import AsyncWorker
 
-logger = logging.getLogger('station')
+logger = logging.getLogger('coopprodsystem.station')
 
 ProductionTimeSecCallback = Callable[[], float]
 
@@ -78,8 +79,9 @@ class Station:
 
         self._last_perf = None
 
-        if start_on_init:
-            self.start_async()
+        self._async_worker = AsyncWorker(self.update, start_on_init=start_on_init, id=f"ASYNC_{self.id}")
+        # if start_on_init:
+        #     self.start_async()
 
     def __repr__(self):
         return str(self)
@@ -331,7 +333,8 @@ class Station:
 
     @property
     def started(self):
-        return not self._refresh_thread is None
+        # return not self._refresh_thread is None
+        return self._async_worker.started
 
 def station_factory(station_template: Station,
                     id: str = None,
@@ -359,7 +362,8 @@ if __name__ == "__main__":
 
         if len(station.available_output) > 0:
             time.sleep(3)
-            station.remove_output(station.available_output[0])
+            to_remove = [Content(resourceUoM=k, qty=v) for k, v in station.available_output.items()]
+            station.remove_output(to_remove)
 
         shorts = station.short_inputs
         if len(shorts) > 0:
