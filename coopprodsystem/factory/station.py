@@ -72,6 +72,9 @@ class Station:
         self._production_timer: Optional[Timer] = None
         self.production_strategy: StationProductionStrategy = production_strategy or StationProductionStrategy.PRODUCE_IF_ALL_SPACE_AVAIL
 
+        self._production_time_sec = None
+        self.last_prod_s = None
+
         self._expertise_calculator = ExpertiseCalculator(schedule=expertise_schedule)
 
         self.current_exception = None
@@ -156,6 +159,9 @@ class Station:
 
         # get the production time
         self._production_time_sec = self._production_time_sec_callback() * (1 - self._expertise_calculator.current_time_reduction_perc())
+
+        # update last prod time
+        self.last_prod_s = self._production_time_sec
 
         # start the timer
         self._production_timer = Timer(int(self._production_time_sec * 1000), start_on_init=True)
