@@ -56,7 +56,7 @@ class ProductionLine:
             timer=timer
         )
         self._station_transfers.append(new_transfer)
-        logger.info(f"{from_s.id} -> {to_s.id} transferring...")
+        logger.info(f"{from_s.id} -> {to_s.id} transferring {content} in {timer.time_ms / 1000} sec [capacity at dest: {to_s.space_for_input}]")
         cevents.raise_event_StationTransferStarted(
             args=cevents.OnStationTransferStartedEventArgs(
                 transfer=new_transfer
@@ -113,9 +113,8 @@ class ProductionLine:
                         self.init_station_transfer(feeder_station,
                                                    to_station,
                                                    content=transfer_content,
-                                                   timer=Timer(self._transfer_time_s_callback() * 1000, start_on_init=True))
-
-
+                                                   timer=Timer(self._transfer_time_s_callback() * 1000,
+                                                               start_on_init=True))
 
     def add_stations(self, stations: List[Tuple[Station, Vector2]]):
         # add stations to the prod line

@@ -1,6 +1,6 @@
 coopgraph==1.9
 coopstructs==0.46
-cooptools==0.32
+cooptools==0.33
 numpy==1.22.3
 pandas==1.4.2
 Pypubsub==4.0.3
