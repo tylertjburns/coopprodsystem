@@ -8,9 +8,13 @@ class NoLocationFoundException(Exception):
         super().__init__()
 
 class NoLocationWithCapacityException(Exception):
-    def __init__(self, storage):
+    def __init__(self, storage, content, resource_uom_space, loc_uom_space_avail, loc_uom_designations):
         cevents.raise_event_NoLocationWithCapacityException(cevents.OnNoLocationWithCapacityExceptionEventArgs(
-            storage=storage
+            storage=storage,
+            content=content,
+            resource_uom_space=resource_uom_space,
+            loc_uom_space_avail=loc_uom_space_avail,
+            loc_uom_designations=loc_uom_designations
         ))
         super().__init__()
 

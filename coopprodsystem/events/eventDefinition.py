@@ -6,7 +6,9 @@ import datetime
 from dataclasses import dataclass, field
 from coopprodsystem.factory.stationTransfer import StationTransfer
 from coopprodsystem.factory.station import Station
+from coopprodsystem.my_dataclasses import Content, Location, UoMType
 from coopprodsystem.storage import Storage
+from typing import Dict, Optional
 
 logger = logging.getLogger('coopprodsystem.events')
 
@@ -80,7 +82,10 @@ class OnNoLocationFoundExceptionEventArgs(StorageEventArgsBase):
 
 @dataclass(frozen=True)
 class OnNoLocationWithCapacityExceptionEventArgs(StorageEventArgsBase):
-    ...
+    content: Content
+    resource_uom_space: float
+    loc_uom_space_avail: Dict[Location, float]
+    loc_uom_designations: Dict[Location, Optional[UoMType]]
 
 @dataclass(frozen=True)
 class OnContentDoesntMatchLocationExceptionEventArgs(StorageEventArgsBase):

@@ -13,7 +13,7 @@ class Test_Storage(unittest.TestCase):
         inv = Storage(locs)
 
         # assert
-        self.assertEqual(len(inv.locations), len(locs))
+        self.assertEqual(len(inv.Locations), len(locs))
 
     def test__storage__add_content(self):
         # arrange

@@ -41,7 +41,13 @@ class Storage:
                        content.uom.type]]
 
         if len(matches) == 0:
-            raise NoLocationWithCapacityException(storage=self)
+            raise NoLocationWithCapacityException(storage=self,
+                                                  content=content,
+                                                  resource_uom_space=self.space_for_resource_uom(
+                                                      resource_uoms=[content.resourceUoM])[content.resourceUoM],
+                                                  loc_uom_space_avail=self.space_at_locations(uom=content.uom),
+                                                  loc_uom_designations=self._loc_designated_uom_types
+                                                  )
 
         return next(iter(matches))
 
@@ -142,8 +148,12 @@ class Storage:
         qty = sum([x.qty for x in self.content_at_location(location, resource_uoms=[resource_uom])])
         return qty
 
-    def space_at_location(self, locations: List[Location], uom: UoM) -> Dict[Location, float]:
+    def space_at_locations(self, uom: UoM, locations: List[Location] = None) -> Dict[Location, float]:
         ret = {}
+
+        if locations is None:
+            locations = self.Locations
+
         for location in locations:
             if self._loc_designated_uom_types[location] in [None, uom.type]:
                 content_at_loc = self.content_at_location(location)
@@ -220,7 +230,7 @@ class Storage:
         for resource_uom in resource_uoms:
             locs = self.location_match(loc_resource_limits=[resource_uom.resource])
             available_space = sum(
-                [space for loc, space in self.space_at_location(locations=locs, uom=resource_uom.uom).items()])
+                [space for loc, space in self.space_at_locations(locations=locs, uom=resource_uom.uom).items()])
             ret[resource_uom] = available_space
         return ret
 
@@ -248,7 +258,7 @@ class Storage:
         return ret
 
     @property
-    def locations(self) -> List[Location]:
+    def Locations(self) -> List[Location]:
         return list(self._inventory.keys())
 
 if __name__ == "__main__":
