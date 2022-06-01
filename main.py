@@ -2,7 +2,7 @@ from dummyEventHandler import DummyEventHandler
 import time
 import logging
 from station_manifest import STATIONS, StationType
-from coopprodsystem.factory.productionLine import transfer_station, ProductionLine
+from coopprodsystem.factory.productionLine import ProductionLine
 from coopprodsystem.my_dataclasses import ResourceUoM, UoM, UoMType
 from coopstructs.vectors import Vector2
 import random as rnd

@@ -16,7 +16,7 @@ class Test_ProdLine(unittest.TestCase):
         )
 
         # assert
-        self.assertEqual(len(pl.stations), 0)
+        self.assertEqual(len(pl.Stations), 0)
 
 
     def test__init__prod_line(self):
@@ -29,4 +29,4 @@ class Test_ProdLine(unittest.TestCase):
         )
 
         # assert
-        self.assertEqual(len(pl.stations), len(stations))
+        self.assertEqual(len(pl.Stations), len(stations))

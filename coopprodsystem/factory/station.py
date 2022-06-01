@@ -162,7 +162,7 @@ class Station:
 
         # raise event
         evnts.raise_event_production_started_at_station(args=evnts.OnProductionStartedAtStationEventArgs(
-            station_id=self.id
+            station=self
         ))
 
         logger.info(f"station_id {self.id}: Production Started")
@@ -242,7 +242,7 @@ class Station:
 
         # raise event
         evnts.raise_event_production_finished_at_station(args=evnts.OnProductionFinishedAtStationEventArgs(
-            station_id=self.id
+            station=self
         ))
 
     @property

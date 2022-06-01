@@ -4,6 +4,9 @@ from pubsub import pub
 from enum import Enum, auto
 import datetime
 from dataclasses import dataclass, field
+from coopprodsystem.factory.stationTransfer import StationTransfer
+from coopprodsystem.factory.station import Station
+from coopprodsystem.storage import Storage
 
 logger = logging.getLogger('coopprodsystem.events')
 
@@ -12,6 +15,8 @@ class ProductionEventType(Enum):
     STATION_REMOVED = auto()
     PRODUCTION_FINISHED_AT_STATION = auto()
     PRODUCTION_STARTED_AT_STATION = auto()
+    STATION_TRANSFER_STARTED = auto()
+    STATION_TRANSFER_COMPLETED = auto()
     EXCEPTION_NO_LOCATION_FOUND = auto()
     EXCEPTION_NO_LOCATION_WITH_CAPACITY_FOUND = auto()
     EXCEPTION_CONTENT_DOESNT_MATCH_LOCATION = auto()
@@ -20,6 +25,7 @@ class ProductionEventType(Enum):
     EXCEPTION_MISSING_CONTENT = auto()
     EXCEPTION_NO_LOCATION_TO_REMOVE_CONTENT = auto()
 
+#region EventArgsBase
 @dataclass(frozen=True)
 class EventArgsBase:
     date_stamp: datetime.datetime = field(init=False)
@@ -29,12 +35,18 @@ class EventArgsBase:
 
 @dataclass(frozen=True)
 class StationEventArgsBase(EventArgsBase):
-    station_id: str
+    station: Station
 
 @dataclass(frozen=True)
 class StorageEventArgsBase(EventArgsBase):
-    storage_id: str
+    storage: Storage
 
+@dataclass(frozen=True)
+class StationTransferEventArgsBase(EventArgsBase):
+    transfer: StationTransfer
+#endregion
+
+#region EventArgs
 @dataclass(frozen=True)
 class OnStationAddedEventArgs(StationEventArgsBase):
     ...
@@ -51,8 +63,17 @@ class OnProductionFinishedAtStationEventArgs(StationEventArgsBase):
 class OnProductionStartedAtStationEventArgs(StationEventArgsBase):
     ...
 
+@dataclass(frozen=True)
+class OnStationTransferStartedEventArgs(StationTransferEventArgsBase):
+    ...
 
+@dataclass(frozen=True)
+class OnStationTransferCompletedEventArgs(StationTransferEventArgsBase):
+    ...
 
+#endregion
+
+#region ExceptionEventArgs
 @dataclass(frozen=True)
 class OnNoLocationFoundExceptionEventArgs(StorageEventArgsBase):
     ...
@@ -80,8 +101,9 @@ class OnMissingContentExceptionEventArgs(StorageEventArgsBase):
 @dataclass(frozen=True)
 class OnNoLocationToRemoveContentExceptionEventArgs(StorageEventArgsBase):
     ...
+#endregion
 
-
+#region RaiseEvents
 def raise_event(event: ProductionEventType, log_lvl, **kwargs):
     args = kwargs.get('args', None)
     logger.log(level=log_lvl, msg=f"raise event: {event.name} with args: {args}")
@@ -121,6 +143,13 @@ def raise_event_MissingContentException(args: OnMissingContentExceptionEventArgs
 
 def raise_event_NoLocationToRemoveContentException(args: OnNoLocationToRemoveContentExceptionEventArgs):
     raise_event(ProductionEventType.EXCEPTION_NO_LOCATION_TO_REMOVE_CONTENT, log_lvl=logging.ERROR, args=args)
+
+def raise_event_StationTransferStarted(args: OnStationTransferStartedEventArgs):
+    raise_event(ProductionEventType.STATION_TRANSFER_STARTED, log_lvl=logging.INFO, args=args)
+
+def raise_event_StationTransferCompleted(args: OnStationTransferCompletedEventArgs):
+    raise_event(ProductionEventType.STATION_TRANSFER_COMPLETED, log_lvl=logging.INFO, args=args)
+#endregion
 
 if __name__ == "__main__":
     pass

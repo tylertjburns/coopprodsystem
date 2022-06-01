@@ -2,7 +2,7 @@ import uuid
 from coopprodsystem.my_dataclasses import Location, Content, content_factory, UoM, UoMType, Resource, ResourceUoM
 from typing import List, Dict, Optional
 import threading
-from .exceptions import *
+from coopprodsystem.storage.exceptions import *
 
 class Storage:
 
@@ -33,7 +33,7 @@ class Storage:
         matches = self.location_match(uom_types=[content.uom.type, None], loc_resource_limits=[content.resource])
 
         if len(matches) == 0:
-            raise NoLocationFoundException(storage_id=self._id)
+            raise NoLocationFoundException(storage=self)
 
         # locations with capacity
         matches = [loc for loc in matches if
@@ -41,24 +41,24 @@ class Storage:
                        content.uom.type]]
 
         if len(matches) == 0:
-            raise NoLocationWithCapacityException(storage_id=self._id)
+            raise NoLocationWithCapacityException(storage=self)
 
         return next(iter(matches))
 
     def _add_content_to_loc(self, location: Location, content: Content):
         # verify content matches uom capacity
         if content.uom.type not in location.uom_capacities:
-            raise ContentDoesntMatchLocationException(storage_id=self._id)
+            raise ContentDoesntMatchLocationException(storage=self)
 
         # verify the uom matches loc designated uom
         designated_uom_type = self._loc_designated_uom_types[location]
         if designated_uom_type and content.uom.type != self._loc_designated_uom_types[location]:
-            raise ContentDoesntMatchLocationDesignationException(storage_id=self._id)
+            raise ContentDoesntMatchLocationDesignationException(storage=self)
 
         # verify capacity
         qty_at_loc = self.qty_resource_uom_at_location(location, content.resourceUoM)
         if qty_at_loc + content.qty > location.uom_capacities[content.uom.type]:
-            raise NoRoomAtLocationException(storage_id=self._id)
+            raise NoRoomAtLocationException(storage=self)
 
         # add content at location
         self._inventory[location].append(content)
@@ -66,7 +66,7 @@ class Storage:
 
     def _remove_content_from_location(self, content: Content, location: Location) -> Content:
         if content not in self._inventory[location]:
-            raise MissingContentException(storage_id=self._id)
+            raise MissingContentException(storage=self)
 
         idx_of_content = self._inventory[location].index(content)
         removed = self._inventory[location].pop(idx_of_content)
@@ -88,7 +88,7 @@ class Storage:
 
         # handle no location found
         if location is None:
-            raise NoLocationToRemoveContentException(storage_id=self._id)
+            raise NoLocationToRemoveContentException(storage=self)
 
 
         with threading.Lock():
