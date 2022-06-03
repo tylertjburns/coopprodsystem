@@ -13,6 +13,7 @@ class Storage:
         self._id = id or uuid.uuid4()
         self._inventory: Dict[Location, List[Content]] = {location: [] for location in locations}
         self._loc_designated_uom_types: Dict[Location, Optional[UoMType]] = {location: None for location in locations}
+        self._lock = threading.RLock()
 
     def __str__(self):
         return f"id: {self._id}, Locs: {len(self._inventory)}, occupied: {len(self.occupied_locs)}, empty: {len(self.empty_locs)}"
@@ -36,9 +37,8 @@ class Storage:
             raise NoLocationFoundException(storage=self)
 
         # locations with capacity
-        matches = [loc for loc in matches if
-                   self.qty_resource_uom_at_location(loc, content.resourceUoM) + content.qty <= loc.uom_capacities[
-                       content.uom.type]]
+        space_at_matches = self.space_at_locations(uom=content.uom, locations=matches)
+        matches = [loc for loc in matches if space_at_matches[loc] >= content.qty]
 
         if len(matches) == 0:
             raise NoLocationWithCapacityException(storage=self,
@@ -51,24 +51,38 @@ class Storage:
 
         return next(iter(matches))
 
+    def _merge_content(self, content_list: List[Content]) -> List[Content]:
+        content_by_ru = {}
+        for content in content_list:
+            content_by_ru.setdefault(content.resourceUoM, [])
+            content_by_ru[content.resourceUoM].append(content)
+
+        ret = []
+        for ru, c_list in content_by_ru.items():
+            ret.append(content_factory(c_list[0], qty=sum(x.qty for x in c_list)))
+
+        return ret
+
     def _add_content_to_loc(self, location: Location, content: Content):
-        # verify content matches uom capacity
-        if content.uom.type not in location.uom_capacities:
-            raise ContentDoesntMatchLocationException(storage=self)
+        with self._lock:
+            # verify content matches uom capacity
+            if content.uom.type not in location.uom_capacities:
+                raise ContentDoesntMatchLocationException(storage=self)
 
-        # verify the uom matches loc designated uom
-        designated_uom_type = self._loc_designated_uom_types[location]
-        if designated_uom_type and content.uom.type != self._loc_designated_uom_types[location]:
-            raise ContentDoesntMatchLocationDesignationException(storage=self)
+            # verify the uom matches loc designated uom
+            designated_uom_type = self._loc_designated_uom_types[location]
+            if designated_uom_type and content.uom.type != self._loc_designated_uom_types[location]:
+                raise ContentDoesntMatchLocationDesignationException(storage=self)
 
-        # verify capacity
-        qty_at_loc = self.qty_resource_uom_at_location(location, content.resourceUoM)
-        if qty_at_loc + content.qty > location.uom_capacities[content.uom.type]:
-            raise NoRoomAtLocationException(storage=self)
+            # verify capacity
+            qty_at_loc = self.qty_resource_uom_at_location(location, content.resourceUoM)
+            if qty_at_loc + content.qty > location.uom_capacities[content.uom.type]:
+                raise NoRoomAtLocationException(storage=self)
 
-        # add content at location
-        self._inventory[location].append(content)
-        self._loc_designated_uom_types[location] = content.uom.type
+            # add content and merge at location
+            self._inventory[location].append(content)
+            self._inventory[location] = self._merge_content(self._inventory[location])
+            self._loc_designated_uom_types[location] = content.uom.type
 
     def _remove_content_from_location(self, content: Content, location: Location) -> Content:
         if content not in self._inventory[location]:
@@ -83,21 +97,20 @@ class Storage:
             self,
             content: Content,
             location: Location = None) -> Content:
-        if location is None:
-            locations_that_satisfy = self.location_match(resource_uoms=[content.resourceUoM], uom_types=[content.uom.type])
-            location = next(iter([loc for loc in locations_that_satisfy
-                                  if self.qty_resource_uom_at_location(loc, resource_uom=content.resourceUoM) >= content.qty])
-                            , None)
-        else:
-            # TODO: RESOLVE bad location
-            raise NotImplementedError()
+        with self._lock:
+            if location is None:
+                locations_that_satisfy = self.location_match(resource_uoms=[content.resourceUoM], uom_types=[content.uom.type])
+                location = next(iter([loc for loc in locations_that_satisfy
+                                      if self.qty_resource_uom_at_location(loc, resource_uom=content.resourceUoM) >= content.qty])
+                                , None)
+            else:
+                # TODO: RESOLVE bad location
+                raise NotImplementedError()
 
-        # handle no location found
-        if location is None:
-            raise NoLocationToRemoveContentException(storage=self)
+            # handle no location found
+            if location is None:
+                raise NoLocationToRemoveContentException(storage=self)
 
-
-        with threading.Lock():
             cnt_at_loc = self.content_at_location(location, resource_uoms=[content.resourceUoM])
             removed_cnt = []
             while sum(x.qty for x in removed_cnt) < content.qty:
@@ -124,17 +137,45 @@ class Storage:
                 # put back content
                 self._add_content_to_loc(content=to_put_back_cntnt, location=location)
 
-        # If empty, clear location uom designation
-        if len(self.content_at_location(location)) == 0:
-            self._loc_designated_uom_types[location] = None
+            # If empty, clear location uom designation
+            if len(self.content_at_location(location)) == 0:
+                self._loc_designated_uom_types[location] = None
 
-        # roll up
-        ret = content_factory(removed_cnt[0], qty=sum(x.qty for x in removed_cnt))
+            # roll up
+            ret = content_factory(removed_cnt[0], qty=sum(x.qty for x in removed_cnt))
 
-        if ret.qty != content.qty:
-            raise ValueError(f"The qty returned does not match the qty requested")
+            if ret.qty != content.qty:
+                raise ValueError(f"The qty returned does not match the qty requested")
 
         return ret
+
+
+    def aggregage_content_by_location(self,
+                                      location_filter: List[Location] = None,
+                                      resource_uom_filter: List[ResourceUoM] = None) -> Dict[Location, List[Content]]:
+        if location_filter is None:
+            location_filter = self.Locations
+
+        # default the ret to at least include everything in location_filter param
+        ret = {loc: [] for loc in location_filter}
+
+        # scan entire inventory
+        for loc, content in self._inventory.items():
+            # skip locs not in defined range
+            if location_filter is not None and loc not in location_filter:
+                continue
+
+            # skip resourceUoM if not valid
+            for cont in content:
+                if resource_uom_filter and cont.resourceUoM not in resource_uom_filter:
+                    continue
+
+                # accumulate the found content
+                ret[loc].append(cont)
+                ret[loc] = self._merge_content(ret[loc])
+
+        return ret
+
 
 
     def content_at_location(self, location: Location, resource_uoms: List[ResourceUoM] = None) -> List[Content]:
@@ -166,11 +207,7 @@ class Storage:
     def find_resource_uoms(self,
                            resource_uoms: List[ResourceUoM],
                            location_range: List[Location] = None) -> Dict[Location, List[Content]]:
-        matches = self.location_match(resource_uoms=resource_uoms,
-                                      location_range=location_range)
-        return {loc: [cont for cont in content if cont.resourceUoM in resource_uoms] for loc, content in
-                self._inventory.items()
-                if loc in matches}
+        return self.aggregage_content_by_location(location_filter=location_range, resource_uom_filter=resource_uoms)
 
     def location_match(self,
                        resource_uoms: List[ResourceUoM] = None,
@@ -200,24 +237,19 @@ class Storage:
     def qty_of_resource_uoms(self,
                              resource_uoms: List[ResourceUoM] = None,
                              location_range: List[Location] = None) -> Dict[ResourceUoM, float]:
+        content_by_loc = self.aggregage_content_by_location(location_filter=location_range, resource_uom_filter=resource_uoms)
 
         # default the ret to at least include everything in resource_uoms param
         ret = {x: 0 for x in resource_uoms} if resource_uoms else {}
 
-        # scan entire inventory
-        for loc, content in self._inventory.items():
-            # skip locs not in defined range
-            if location_range is not None and loc not in location_range:
-                continue
-
-            for cont in content:
-                # skip resourceUoM if not valid
-                if resource_uoms and cont.resourceUoM not in resource_uoms:
+        # accumulate the qty of resource uoms
+        for loc, c_lst in content_by_loc.items():
+            for c in c_lst:
+                if resource_uoms and c.resourceUoM not in resource_uoms:
                     continue
+                ret.setdefault(c.resourceUoM, 0)
+                ret[c.resourceUoM] += c.qty
 
-                # accumulate the found content
-                ret.setdefault(cont.resourceUoM, 0)
-                ret[cont.resourceUoM] += cont.qty
         return ret
 
     def space_for_resource_uom(self,
@@ -245,17 +277,6 @@ class Storage:
     @property
     def inventory_by_resource_uom(self) -> Dict[ResourceUoM, float]:
         return self.qty_of_resource_uoms()
-
-    @property
-    def rolled_inventory(self) -> List[Content]:
-        print(f"usage of the property [rolled_inventory] will be depricated. Please make necessary changes to use inventory_by_resource_uom instead")
-
-        inv_by_resource = self.inventory_by_resource_uom
-
-        ret = []
-        for resource_uom, qty in inv_by_resource.items():
-            ret.append(Content(resourceUoM=resource_uom, qty=qty))
-        return ret
 
     @property
     def Locations(self) -> List[Location]:
