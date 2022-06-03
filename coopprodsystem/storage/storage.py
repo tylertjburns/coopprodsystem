@@ -248,7 +248,7 @@ class Storage:
 
     @property
     def rolled_inventory(self) -> List[Content]:
-        print(f"usage of property will be depricated. Please make necessary changes to use inventory_by_resource_uom instead")
+        print(f"usage of the property [rolled_inventory] will be depricated. Please make necessary changes to use inventory_by_resource_uom instead")
 
         inv_by_resource = self.inventory_by_resource_uom
 

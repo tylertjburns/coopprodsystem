@@ -14,6 +14,8 @@ from cooptools.coopEnum import CoopEnum
 from enum import auto
 from coopprodsystem.factory.expertiseSchedules import ExpertiseSchedule, ExpertiseCalculator
 from cooptools.coopthreading import AsyncWorker
+from cooptools.timeWindow import TimeWindow
+from cooptools.metrics import Metrics
 
 logger = logging.getLogger('coopprodsystem.station')
 
@@ -82,6 +84,8 @@ class Station:
 
         self._last_perf = None
 
+        self._metrics = Metrics()
+
         self._async_worker = AsyncWorker(self.update, start_on_init=start_on_init, id=f"ASYNC_{self.id}")
         # if start_on_init:
         #     self.start_async()
@@ -107,16 +111,21 @@ class Station:
             time.sleep(.1)
 
     def update(self):
+
+        t_now = time.perf_counter()
+
         if not self.producing:
             self._try_start_producing()
         elif self.production_complete:
             self.finish_producing()
-            self._expertise_calculator.increment_s_producting(time.perf_counter() - self._last_perf)
+            self._expertise_calculator.increment_s_producting(t_now - self._last_perf)
         else:
             logger.info(f"station_id {self.id}: producing...")
-            self._expertise_calculator.increment_s_producting(time.perf_counter() - self._last_perf)
+            self._expertise_calculator.increment_s_producting(t_now - self._last_perf)
 
-        self._last_perf = time.perf_counter()
+
+        self._metrics.add_time_windows([TimeWindow(start=self._last_perf, end=t_now, tags=self.status)])
+        self._last_perf = t_now
 
     @property
     def progress(self):
@@ -341,6 +350,10 @@ class Station:
     def started(self):
         # return not self._refresh_thread is None
         return self._async_worker.started
+
+    @property
+    def metrics(self):
+        return self._metrics
 
 def station_factory(station_template: Station,
                     id: str = None,
