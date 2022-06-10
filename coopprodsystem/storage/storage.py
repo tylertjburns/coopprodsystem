@@ -13,6 +13,7 @@ class Storage:
         self._id = id or uuid.uuid4()
         self._inventory: Dict[Location, List[Content]] = {location: [] for location in locations}
         self._loc_designated_uom_types: Dict[Location, Optional[UoMType]] = {location: None for location in locations}
+        self._active_uom_type_designations: Dict[Location, Optional[UoMType]] = {location: None for location in locations}
         self._lock = threading.RLock()
 
     def __str__(self):
@@ -46,7 +47,7 @@ class Storage:
                                                   resource_uom_space=self.space_for_resource_uom(
                                                       resource_uoms=[content.resourceUoM])[content.resourceUoM],
                                                   loc_uom_space_avail=self.space_at_locations(uom=content.uom),
-                                                  loc_uom_designations=self._loc_designated_uom_types
+                                                  loc_uom_designations=self._active_uom_type_designations
                                                   )
 
         return next(iter(matches))
@@ -70,8 +71,8 @@ class Storage:
                 raise ContentDoesntMatchLocationException(storage=self)
 
             # verify the uom matches loc designated uom
-            designated_uom_type = self._loc_designated_uom_types[location]
-            if designated_uom_type and content.uom.type != self._loc_designated_uom_types[location]:
+            designated_uom_type = self._active_uom_type_designations[location]
+            if designated_uom_type and content.uom.type != self._active_uom_type_designations[location]:
                 raise ContentDoesntMatchLocationDesignationException(storage=self)
 
             # verify capacity
@@ -82,7 +83,7 @@ class Storage:
             # add content and merge at location
             self._inventory[location].append(content)
             self._inventory[location] = self._merge_content(self._inventory[location])
-            self._loc_designated_uom_types[location] = content.uom.type
+            self._active_uom_type_designations[location] = content.uom.type
 
     def _remove_content_from_location(self, content: Content, location: Location) -> Content:
         if content not in self._inventory[location]:
@@ -138,8 +139,8 @@ class Storage:
                 self._add_content_to_loc(content=to_put_back_cntnt, location=location)
 
             # If empty, clear location uom designation
-            if len(self.content_at_location(location)) == 0:
-                self._loc_designated_uom_types[location] = None
+            if len(self.content_at_location(location)) == 0 and self._loc_designated_uom_types.get(location, None) is None:
+                self._active_uom_type_designations[location] = None
 
             # roll up
             ret = content_factory(removed_cnt[0], qty=sum(x.qty for x in removed_cnt))
@@ -196,7 +197,7 @@ class Storage:
             locations = self.Locations
 
         for location in locations:
-            if self._loc_designated_uom_types[location] in [None, uom.type]:
+            if self._active_uom_type_designations[location] in [None, uom.type]:
                 content_at_loc = self.content_at_location(location)
                 ret[location] = location.uom_capacities[uom.type] - sum(x.qty for x in content_at_loc)
             else:
@@ -221,7 +222,7 @@ class Storage:
 
         if uom_types:
             matches = [loc for loc in matches
-                       if self._loc_designated_uom_types[loc] in uom_types]
+                       if self._active_uom_type_designations[loc] in uom_types]
 
         if resource_uoms:
             matches = [loc for loc in matches
