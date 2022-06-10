@@ -32,24 +32,27 @@ class Storage:
 
     def find_open_location(self, content: Content) -> Location:
         # locs matching required uom and resource limitation
-        matches = self.location_match(uom_types=[content.uom.type, None], loc_resource_limits=[content.resource])
+        uom_resource_matches = self.location_match(uom_types=[content.uom.type, None], loc_resource_limits=[content.resource])
 
-        if len(matches) == 0:
+        if len(uom_resource_matches) == 0:
             raise NoLocationFoundException(storage=self)
 
         # locations with capacity
-        space_at_matches = self.space_at_locations(uom=content.uom, locations=matches)
-        matches = [loc for loc in matches if space_at_matches[loc] >= content.qty]
+        space_at_matches = self.space_at_locations(uom=content.uom, locations=uom_resource_matches)
+        matches = [loc for loc in uom_resource_matches if space_at_matches[loc] >= content.qty]
 
+        # raise if no matches have space
         if len(matches) == 0:
             raise NoLocationWithCapacityException(storage=self,
                                                   content=content,
                                                   resource_uom_space=self.space_for_resource_uom(
                                                       resource_uoms=[content.resourceUoM])[content.resourceUoM],
-                                                  loc_uom_space_avail=self.space_at_locations(uom=content.uom),
-                                                  loc_uom_designations=self._active_uom_type_designations
+                                                  loc_uom_space_avail=space_at_matches,
+                                                  loc_uom_designations=self._loc_designated_uom_types
                                                   )
 
+        # return first entry in matches
+        # TODO: Allow some sortation on locs that match
         return next(iter(matches))
 
     def _merge_content(self, content_list: List[Content]) -> List[Content]:
