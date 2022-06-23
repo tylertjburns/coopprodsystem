@@ -1,4 +1,4 @@
-from coopprodsystem.my_dataclasses import Content, content_factory, Resource, UoM, UoMType
+from coopstorage.my_dataclasses import Content, content_factory, Resource, UoM
 from dataclasses import dataclass
 from functools import partial
 
@@ -27,4 +27,4 @@ def stationResourceDefinition_factory(station_resource_definition: StationResour
         storage_capacity=storage_capacity or station_resource_definition.storage_capacity
     )
 
-station_resource_def_EA_uom = partial(stationResourceDefinition_factory, content_uom=UoM(UoMType.EACH))
+station_resource_def_EA_uom = partial(stationResourceDefinition_factory, content_uom=UoM('EACH'))

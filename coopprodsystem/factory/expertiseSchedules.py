@@ -42,10 +42,12 @@ class ExpertiseCalculator:
         self._expertise_args = expertiseArgs_factory(self._expertise_args,
                               seconds_producing=self._expertise_args.seconds_producing + seconds)
 
-    def perc_expert(self):
+    @property
+    def PercExpert(self):
         return self.schedule.perc_expert(self._expertise_args)
 
-    def current_time_reduction_perc(self):
+    @property
+    def CurrentTimeReductionPerc(self):
         return self.schedule.current_time_reduction_perc(self._expertise_args)
 
 if __name__ == "__main__":

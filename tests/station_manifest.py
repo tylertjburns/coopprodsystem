@@ -1,5 +1,5 @@
 from coopprodsystem.factory import Station, station_resource_def_EA_uom, StationProductionStrategy
-import sku_manifest as skus
+import tests.sku_manifest as skus
 from cooptools.coopEnum import CoopEnum
 from enum import auto
 from typing import Dict
@@ -16,13 +16,25 @@ outputs = [
     station_resource_def_EA_uom(content_resource=skus.sku_a, content_qty=3, storage_capacity=21),
     station_resource_def_EA_uom(content_resource=skus.sku_d, content_qty=3, storage_capacity=21),
 ]
-r1 = Station(id=StationType.RAW_1.name, input_reqs=[], output=outputs, production_timer_sec_callback=lambda: 3,start_on_init=True, production_strategy=StationProductionStrategy.PRODUCE_IF_ANY_SPACE_AVAIL)
+r1 = Station(id=StationType.RAW_1.name,
+             input_reqs=[],
+             output=outputs,
+             production_timer_sec_callback=lambda: 3,
+             start_on_init=False,
+             production_strategy=StationProductionStrategy.PRODUCE_IF_ANY_SPACE_AVAIL,
+             type=StationType.RAW_1.name)
 
 outputs = [
     station_resource_def_EA_uom(content_resource=skus.sku_b, content_qty=3, storage_capacity=21),
     station_resource_def_EA_uom(content_resource=skus.sku_e, content_qty=3, storage_capacity=21),
 ]
-r2 = Station(id=StationType.RAW_2.name, input_reqs=[], output=outputs, production_timer_sec_callback=lambda: 3,start_on_init=True, production_strategy=StationProductionStrategy.PRODUCE_IF_ANY_SPACE_AVAIL)
+r2 = Station(id=StationType.RAW_2.name,
+             input_reqs=[],
+             output=outputs,
+             production_timer_sec_callback=lambda: 3,
+             start_on_init=False,
+             production_strategy=StationProductionStrategy.PRODUCE_IF_ANY_SPACE_AVAIL,
+             type=StationType.RAW_2.name)
 
 input_reqs = [
     station_resource_def_EA_uom(content_resource=skus.sku_a, content_qty=5, storage_capacity=10),
@@ -31,7 +43,12 @@ input_reqs = [
 outputs = [
     station_resource_def_EA_uom(content_resource=skus.sku_c, content_qty=3, storage_capacity=3),
 ]
-s1 = Station(id=StationType.DUMMY_1.name, input_reqs=input_reqs, output=outputs, production_timer_sec_callback=lambda: 3,start_on_init=True)
+s1 = Station(id=StationType.DUMMY_1.name,
+             input_reqs=input_reqs,
+             output=outputs,
+             production_timer_sec_callback=lambda: 3,
+             start_on_init=False,
+             type=StationType.DUMMY_1.name)
 
 input_reqs = [
     station_resource_def_EA_uom(content_resource=skus.sku_d, content_qty=5, storage_capacity=10),
@@ -40,7 +57,12 @@ input_reqs = [
 outputs = [
     station_resource_def_EA_uom(content_resource=skus.sku_f, content_qty=3, storage_capacity=3),
 ]
-s2 = Station(id=StationType.DUMMY_2.name, input_reqs=input_reqs, output=outputs, production_timer_sec_callback=lambda: 3,start_on_init=True)
+s2 = Station(id=StationType.DUMMY_2.name,
+             input_reqs=input_reqs,
+             output=outputs,
+             production_timer_sec_callback=lambda: 3,
+             start_on_init=False,
+             type=StationType.DUMMY_2.name)
 
 input_reqs = [
     station_resource_def_EA_uom(content_resource=skus.sku_c, content_qty=5, storage_capacity=10),
@@ -53,7 +75,8 @@ s3 = Station(id=StationType.DUMMY_3.name,
              input_reqs=input_reqs,
              output=outputs,
              production_timer_sec_callback=lambda: 3,
-             start_on_init=True)
+             start_on_init=False,
+             type=StationType.DUMMY_3.name)
 
 
 STATIONS: Dict[StationType, Station] = {

@@ -2,10 +2,8 @@ import time
 import threading
 import uuid
 
-from coopprodsystem.my_dataclasses import Content, content_factory, ResourceUoM
 from typing import List, Optional, Callable, Dict
 from cooptools.timedDecay import Timer
-from coopprodsystem.storage.storage import Storage, Location
 import logging
 import coopprodsystem.events as evnts
 from coopprodsystem.factory.stationResourceDefinition import StationResourceDefinition
@@ -14,8 +12,10 @@ from cooptools.coopEnum import CoopEnum
 from enum import auto
 from coopprodsystem.factory.expertiseSchedules import ExpertiseSchedule, ExpertiseCalculator
 from cooptools.coopthreading import AsyncWorker
-from cooptools.timeWindow import TimeWindow
+from cooptools.timeWindow import TaggedTimeWindow, TimeWindow
 from cooptools.metrics import Metrics
+from coopstorage.storage import Storage, Location, StorageState
+from coopstorage.my_dataclasses import UoMCapacity, Content, content_factory, ResourceUoM
 
 logger = logging.getLogger('coopprodsystem.station')
 
@@ -63,13 +63,13 @@ class Station:
         self._input_storage = Storage(
             id=f"{self.id}_input",
             locations=[Location(id=f"{self.id}_{ii}",
-                                uom_capacities={x.content.uom.type: x.storage_capacity},
-                                resource_limitations=[x.content.resource]) for ii, x in enumerate(input_reqs)])
+                                uom_capacities=frozenset([UoMCapacity(x.content.uom,  x.storage_capacity)]),
+                                resource_limitations=frozenset([x.content.resource])) for ii, x in enumerate(input_reqs)])
         self._output_storage = Storage(
             id=f"{self.id}_output",
             locations=[Location(id=f"{self.id}_{ii}",
-                                uom_capacities={x.content.uom.type: x.storage_capacity},
-                                resource_limitations=[x.content.resource]) for ii, x in enumerate(output)])
+                                uom_capacities=frozenset([UoMCapacity(x.content.uom, x.storage_capacity)]),
+                                resource_limitations=frozenset([x.content.resource])) for ii, x in enumerate(output)])
         self._production_time_sec_callback = production_timer_sec_callback
         self._production_timer: Optional[Timer] = None
         self.production_strategy: StationProductionStrategy = production_strategy or StationProductionStrategy.PRODUCE_IF_ALL_SPACE_AVAIL
@@ -80,30 +80,24 @@ class Station:
         self._expertise_calculator = ExpertiseCalculator(schedule=expertise_schedule)
 
         self.current_exception = None
-        self._refresh_thread = None
-
         self._last_perf = None
 
         self._metrics = Metrics()
 
         self._async_worker = AsyncWorker(self.update, start_on_init=start_on_init, id=f"ASYNC_{self.id}")
-        # if start_on_init:
-        #     self.start_async()
 
     def __repr__(self):
         return str(self)
 
     def __str__(self):
         exc = f"<{str(type(self.current_exception).__name__)}>" if self.current_exception else ""
-        return f"{self.id}, {[x.name for x in self.status]}, {round(self.progress or 0, 2)}, {self.stored_inputs_as_content}, {self.available_output_as_content} {exc}"
+        return f"{self.id} [{round(self.expertise.PercExpert * 100, 1)}%], {[x.name for x in self.status]}, {round(self.progress or 0, 2)}, {self.stored_inputs_as_content}, {self.available_output_as_content} {exc}"
 
     def __hash__(self):
         return hash(self.id)
 
     def start_async(self):
-        self._refresh_thread = threading.Thread(target=self._async_loop, daemon=True)
-        self._last_perf = time.perf_counter()
-        self._refresh_thread.start()
+        self._async_worker.start_async()
 
     def _async_loop(self):
         while True:
@@ -111,6 +105,8 @@ class Station:
             time.sleep(.1)
 
     def update(self):
+        if self._last_perf is None:
+            self._last_perf = time.perf_counter()
 
         t_now = time.perf_counter()
 
@@ -124,7 +120,7 @@ class Station:
             self._expertise_calculator.increment_s_producting(t_now - self._last_perf)
 
 
-        self._metrics.add_time_windows([TimeWindow(start=self._last_perf, end=t_now, tags=self.status)])
+        self._metrics.add_time_windows([TaggedTimeWindow(window=TimeWindow(start=self._last_perf, end=t_now), tags=self.status)])
         self._last_perf = t_now
 
     @property
@@ -167,7 +163,7 @@ class Station:
         self._consume_input()
 
         # get the production time
-        self._production_time_sec = self._production_time_sec_callback() * (1 - self._expertise_calculator.current_time_reduction_perc())
+        self._production_time_sec = self._production_time_sec_callback() * (1 - self._expertise_calculator.CurrentTimeReductionPerc)
 
         # update last prod time
         self.last_prod_s = self._production_time_sec
@@ -197,7 +193,7 @@ class Station:
 
     def _raise_if_not_enough_inputs(self):
         for input_req in self._input_reqs:
-            stored_in = self._input_storage.qty_of_resource_uoms(resource_uoms=[input_req.content.resourceUoM])[input_req.content.resourceUoM]
+            stored_in = self._input_storage.state.qty_of_resource_uoms(resource_uoms=[input_req.content.resourceUoM])[input_req.content.resourceUoM]
             if stored_in < input_req.content.qty:
                 raise NotEnoughInputToProduceException()
 
@@ -216,7 +212,7 @@ class Station:
 
     @property
     def available_output(self) -> Dict[ResourceUoM, float]:
-        return self._output_storage.inventory_by_resource_uom
+        return self._output_storage.state.InventoryByResourceUom
 
     @property
     def available_output_as_content(self) -> List[Content]:
@@ -271,7 +267,7 @@ class Station:
         short = []
 
         for input in self._input_reqs:
-            stored = self._input_storage.qty_of_resource_uoms(resource_uoms=[input.content.resourceUoM])[input.content.resourceUoM]
+            stored = self._input_storage.state.qty_of_resource_uoms(resource_uoms=[input.content.resourceUoM])[input.content.resourceUoM]
             if stored < input.content.qty:
                 short.append(content_factory(input.content, qty=input.content.qty - stored))
 
@@ -279,13 +275,13 @@ class Station:
 
     @property
     def space_for_input(self) -> Dict[ResourceUoM, float]:
-        return self._input_storage.space_for_resource_uom(
+        return self._input_storage.state.space_for_resource_uom(
             [defin.content.resourceUoM for defin in self._input_reqs]
         )
 
     @property
     def space_for_output(self) -> Dict[ResourceUoM, float]:
-        return self._output_storage.space_for_resource_uom(
+        return self._output_storage.state.space_for_resource_uom(
             [defin.content.resourceUoM for defin in self._output]
         )
 
@@ -303,7 +299,7 @@ class Station:
 
     @property
     def stored_inputs(self) -> Dict[ResourceUoM, float]:
-        return self._input_storage.inventory_by_resource_uom
+        return self._input_storage.state.InventoryByResourceUom
 
     @property
     def stored_inputs_as_content(self) -> List[Content]:
@@ -355,9 +351,20 @@ class Station:
     def metrics(self):
         return self._metrics
 
+    @property
+    def InputStorageState(self) -> StorageState:
+        return self._input_storage.state
+
+    @property
+    def OutputStorageState(self) -> StorageState:
+        return self._output_storage.state
+
 def station_factory(station_template: Station,
                     id: str = None,
-                    start_on_init: bool = False) -> Station:
+                    start_on_init: bool = False,
+                    expertise_schedule: ExpertiseSchedule = None) -> Station:
+    expertise_schedule = expertise_schedule or (station_template.expertise.schedule)
+
     return Station(
         id=id,
         input_reqs=station_template.input_reqs,
@@ -365,24 +372,28 @@ def station_factory(station_template: Station,
         production_timer_sec_callback=station_template.production_timer_sec_callback,
         type=station_template.type,
         start_on_init=start_on_init,
-        expertise_schedule=station_template.expertise.schedule,
+        expertise_schedule=expertise_schedule,
         production_strategy=station_template.production_strategy
     )
 
 
 if __name__ == "__main__":
-    from station_manifest import STATIONS, StationType
+    from tests.station_manifest import STATIONS, StationType
+    from coopprodsystem.factory import station_factory
 
     logging.basicConfig(level=logging.INFO)
-    station = STATIONS[StationType.DUMMY_1]
+    s_template = STATIONS[StationType.RAW_1]
+    station = station_factory(s_template, start_on_init=False, id=f"{s_template.id}_0")
 
     while True:
         time.sleep(.5)
+        station.update()
 
-        if len(station.available_output) > 0:
-            time.sleep(3)
-            to_remove = [Content(resourceUoM=k, qty=v) for k, v in station.available_output.items()]
-            station.remove_output(to_remove)
+        to_remove = []
+        for ru, qty in station.available_output.items():
+            if qty > 0.75 * station.OutputStorageState.capacity_for_resource_uoms(resource_uoms=[ru])[ru]:
+                to_remove.append(Content(resourceUoM=ru, qty=qty))
+        station.remove_output(to_remove)
 
         shorts = station.short_inputs
         if len(shorts) > 0:

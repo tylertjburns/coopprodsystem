@@ -1,6 +1,6 @@
 import unittest
-from coopprodsystem import ProductionLine, Station
-from station_manifest import STATIONS
+from coopprodsystem import ProductionLine
+from tests.station_manifest import STATIONS
 from coopstructs.vectors import Vector2
 import random as rnd
 

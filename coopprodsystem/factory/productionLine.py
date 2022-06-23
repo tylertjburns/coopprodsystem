@@ -4,14 +4,14 @@ from coopgraph.graphs import Graph, Node, Edge
 from typing import List, Dict, Tuple, Callable
 from coopprodsystem.factory.station import Station
 from coopstructs.vectors import Vector2
-from coopprodsystem.my_dataclasses import content_factory, ResourceUoM, Content
+from coopstorage.my_dataclasses import content_factory, ResourceUoM, Content
 from coopprodsystem.factory import StationTransfer
 import logging
 import coopprodsystem.events as cevents
 from cooptools.timedDecay import Timer
 from cooptools.coopthreading import AsyncWorker
 
-logger = logging.getLogger('productionLine')
+logger = logging.getLogger('coopprodsystem.productionLine')
 
 time_provider = Callable[[], float]
 
@@ -41,6 +41,9 @@ class ProductionLine:
 
         # start
         self._async_worker = AsyncWorker(update_callback=self.update, start_on_init=start_on_init)
+        if start_on_init:
+            for _, station in self._stations.items():
+                station.start_async()
 
     def update(self):
         self.check_create_transfers()
