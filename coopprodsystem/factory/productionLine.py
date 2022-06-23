@@ -42,12 +42,22 @@ class ProductionLine:
         # start
         self._async_worker = AsyncWorker(update_callback=self.update, start_on_init=start_on_init)
         if start_on_init:
-            for _, station in self._stations.items():
-                station.start_async()
+            self.start_async()
+
+    def start_async(self):
+        self._async_worker.start_async()
+        for _, station in self._stations.items():
+            station.start_async()
 
     def update(self):
+        self.check_update_stations()
         self.check_create_transfers()
         self.check_handle_transfers()
+
+    def check_update_stations(self):
+        for name, station in self._stations.items():
+            if not station.AsyncStarted:
+                station.update()
 
     def init_station_transfer(self, from_s: Station, to_s: Station, content: Content, timer: Timer):
         transfer_content = next(iter(from_s.remove_output(content=[content])), None)
