@@ -8,12 +8,13 @@ from coopstorage.my_dataclasses import content_factory, ResourceUoM, Content
 from coopprodsystem.factory import StationTransfer
 import logging
 import coopprodsystem.events as cevents
-from cooptools.timedDecay import Timer
+from cooptools.timedDecay import Timer, TimedDecay
 from cooptools.coopthreading import AsyncWorker
 
 logger = logging.getLogger('coopprodsystem.productionLine')
 
 time_provider = Callable[[], float]
+
 
 class ProductionLine:
     def __init__(self,
@@ -49,17 +50,19 @@ class ProductionLine:
         for _, station in self._stations.items():
             station.start_async()
 
-    def update(self):
-        self.check_update_stations()
-        self.check_create_transfers()
-        self.check_handle_transfers()
+    def update(self, time_perf: float = None):
+        if time_perf is None: time_perf = time.perf_counter()
 
-    def check_update_stations(self):
+        self.check_update_stations(time_perf)
+        self.check_create_transfers(time_perf)
+        self.check_handle_transfers(time_perf)
+
+    def check_update_stations(self, time_perf: float):
         for name, station in self._stations.items():
             if not station.AsyncStarted:
-                station.update()
+                station.update(time_perf)
 
-    def init_station_transfer(self, from_s: Station, to_s: Station, content: Content, timer: Timer):
+    def init_station_transfer(self, from_s: Station, to_s: Station, content: Content, timer: TimedDecay):
         transfer_content = next(iter(from_s.remove_output(content=[content])), None)
 
         new_transfer = StationTransfer(
@@ -69,15 +72,16 @@ class ProductionLine:
             timer=timer
         )
         self._station_transfers.append(new_transfer)
-        logger.info(f"{from_s.id} -> {to_s.id} transferring {content} in {timer.time_ms / 1000} sec [capacity at dest: {to_s.space_for_input}]")
+        logger.info(
+            f"{from_s.id} -> {to_s.id} transferring {content} in {timer.time_ms / 1000} sec [capacity at dest: {to_s.space_for_input}]")
         cevents.raise_event_StationTransferStarted(
             args=cevents.OnStationTransferStartedEventArgs(
                 transfer=new_transfer
             ))
 
-    def check_handle_transfers(self):
+    def check_handle_transfers(self, time_perf: float):
         for transfer in self._station_transfers:
-            if transfer.timer.finished:
+            if time_perf > transfer.timer.EndTime:
                 transfer.to_station.add_input(inputs=[transfer.content])
                 self._station_transfers.remove(transfer)
                 logger.info(f"{transfer.from_station.id} -> {transfer.to_station.id} transfer complete")
@@ -94,7 +98,7 @@ class ProductionLine:
     def content_in_transit_to_station(self, station_id: str) -> List[Content]:
         return [x.content for x in self._station_transfers if x.to_station.id == station_id]
 
-    def check_create_transfers(self):
+    def check_create_transfers(self, time_perf):
         for id, to_station in self.Stations.items():
             feeder_stations = self.check_connections_to_station(to_station)
             transfers_to_station = self.content_in_transit_to_station(id)
@@ -115,19 +119,22 @@ class ProductionLine:
                         continue
 
                     # calulate the amount of resourceUoM that is in existing transfers to the station.
-                    amount_resource_uom_on_its_way = sum([c.qty for c in transfers_to_station if c.resourceUoM == resource_uom])
+                    amount_resource_uom_on_its_way = sum(
+                        [c.qty for c in transfers_to_station if c.resourceUoM == resource_uom])
 
                     # resolve the amount of resourceUoM that can be sent based on the difference of (space avail) - (on its way)
                     space_minus_in_transit = space_for_resource_uom - amount_resource_uom_on_its_way
 
                     # if there is capacity after transfers, then init a new transfer to the dest in the amount of min(space, avail)
                     if space_minus_in_transit > 0:
-                        transfer_content = content_factory(resource_uom=resource_uom, qty=min(space_minus_in_transit, avail_qty))
+                        transfer_content = content_factory(resource_uom=resource_uom,
+                                                           qty=min(space_minus_in_transit, avail_qty))
                         self.init_station_transfer(feeder_station,
                                                    to_station,
                                                    content=transfer_content,
-                                                   timer=Timer(self._transfer_time_s_callback() * 1000,
-                                                               start_on_init=True))
+                                                   timer=TimedDecay(self._transfer_time_s_callback() * 1000,
+                                                                    start_time=time_perf)
+                                                   )
 
     def add_stations(self, stations: List[Tuple[Station, Vector2]]):
         # add stations to the prod line

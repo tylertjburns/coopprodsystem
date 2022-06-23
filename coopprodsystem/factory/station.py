@@ -3,7 +3,7 @@ import threading
 import uuid
 
 from typing import List, Optional, Callable, Dict
-from cooptools.timedDecay import Timer
+from cooptools.timedDecay import Timer, TimedDecay
 import logging
 import coopprodsystem.events as evnts
 from coopprodsystem.factory.stationResourceDefinition import StationResourceDefinition
@@ -74,7 +74,7 @@ class Station:
                                 uom_capacities=frozenset([UoMCapacity(x.content.uom, x.storage_capacity)]),
                                 resource_limitations=frozenset([x.content.resource])) for ii, x in enumerate(output)])
         self._production_time_sec_callback = production_timer_sec_callback
-        self._production_timer: Optional[Timer] = None
+        self._production_timer: Optional[TimedDecay] = None
         self.production_strategy: StationProductionStrategy = production_strategy or StationProductionStrategy.PRODUCE_IF_ALL_SPACE_AVAIL
 
         self._production_time_sec = None
@@ -107,31 +107,35 @@ class Station:
             self.update()
             time.sleep(.1)
 
-    def update(self):
+    def update(self, time_perf: float = None):
         if self._last_perf is None:
             self._last_perf = time.perf_counter()
 
-        t_now = time.perf_counter()
+        if time_perf is None:
+            time_perf = time.perf_counter()
+
+        if self._last_perf is None:
+            self._last_perf = time_perf
 
         if not self.producing:
             self._try_start_producing()
         elif self.production_complete:
             self.finish_producing()
-            self._expertise_calculator.increment_s_producting(t_now - self._last_perf)
+            self._expertise_calculator.increment_s_producting(time_perf - self._last_perf)
         else:
             logger.info(f"station_id {self.id}: producing...")
-            self._expertise_calculator.increment_s_producting(t_now - self._last_perf)
+            self._expertise_calculator.increment_s_producting(time_perf - self._last_perf)
 
         self._metrics.add_time_windows(
-            [TaggedTimeWindow(window=TimeWindow(start=self._last_perf, end=t_now), tags=self.status)])
-        self._last_perf = t_now
+            [TaggedTimeWindow(window=TimeWindow(start=self._last_perf, end=time_perf), tags=self.status)])
+        self._last_perf = time_perf
 
     @property
     def progress(self):
         if self._production_timer is None:
             return None
 
-        return self._production_timer.progress
+        return self._production_timer.progress_at_time(time.perf_counter())
 
     @property
     def producing(self):
@@ -173,7 +177,8 @@ class Station:
         self.last_prod_s = self._production_time_sec
 
         # start the timer
-        self._production_timer = Timer(int(self._production_time_sec * 1000), start_on_init=True)
+        self._production_timer = TimedDecay(int(self._production_time_sec * 1000), start_time=time.perf_counter())
+        # self._production_timer = Timer(int(self._production_time_sec * 1000), start_on_init=True)
 
         # raise event
         evnts.raise_event_production_started_at_station(args=evnts.OnProductionStartedAtStationEventArgs(
@@ -263,7 +268,7 @@ class Station:
 
     @property
     def production_complete(self) -> bool:
-        if self._production_timer and self._production_timer.finished:
+        if self._production_timer and time.perf_counter() > self._production_timer.EndTime:
             return True
         return False
 
