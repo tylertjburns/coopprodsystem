@@ -94,7 +94,7 @@ class Station:
 
     def __str__(self):
         exc = f"<{str(type(self.current_exception).__name__)}>" if self.current_exception else ""
-        return f"{self.id} [{round(self.expertise.PercExpert * 100, 1)}%], {[x.name for x in self.status]}, {round(self.progress or 0, 2)}, {self.stored_inputs_as_content}, {self.available_output_as_content} {exc}"
+        return f"{self.id} [{round(self.expertise.PercExpert * 100, 1)}%], {[x.name for x in self.status]}, {self.stored_inputs_as_content}, {self.available_output_as_content} {exc}"
 
     def __hash__(self):
         return hash(self.id)
@@ -108,9 +108,6 @@ class Station:
             time.sleep(.1)
 
     def update(self, time_perf: float = None):
-        if self._last_perf is None:
-            self._last_perf = time.perf_counter()
-
         if time_perf is None:
             time_perf = time.perf_counter()
 
@@ -118,32 +115,31 @@ class Station:
             self._last_perf = time_perf
 
         if not self.producing:
-            self._try_start_producing()
-        elif self.production_complete:
+            self._try_start_producing(time_perf)
+        elif self.production_complete(time_perf):
             self.finish_producing()
             self._expertise_calculator.increment_s_producting(time_perf - self._last_perf)
         else:
             logger.info(f"station_id {self.id}: producing...")
             self._expertise_calculator.increment_s_producting(time_perf - self._last_perf)
 
-        self._metrics.add_time_windows(
-            [TaggedTimeWindow(window=TimeWindow(start=self._last_perf, end=time_perf), tags=self.status)])
+        # self._metrics.add_time_windows([TaggedTimeWindow(window=TimeWindow(start=self._last_perf, end=time_perf), tags=self.status)])
         self._last_perf = time_perf
 
-    @property
-    def progress(self):
+    def progress(self, time_perf=None):
         if self._production_timer is None:
             return None
 
-        return self._production_timer.progress_at_time(time.perf_counter())
+        if time_perf is None: time_perf = time.perf_counter()
+        return self._production_timer.progress_at_time(time_perf)
 
     @property
     def producing(self):
         return True if self._production_timer is not None else False
 
-    def _try_start_producing(self):
+    def _try_start_producing(self, time_perf):
         try:
-            self._start_producing()
+            self._start_producing(time_perf)
             self.current_exception = None
         except (AtMaxCapacityException,
                 OutputStorageToFullToProduceException,
@@ -155,7 +151,7 @@ class Station:
         #     logger.error(f"station_id {self.id}: {e} ->"
         #                  f"\n{traceback.format_exc()}")
 
-    def _start_producing(self):
+    def _start_producing(self, time_perf: float = None):
         # verify have capacity to produce
         if self.producing:
             raise AtMaxCapacityException()
@@ -177,7 +173,8 @@ class Station:
         self.last_prod_s = self._production_time_sec
 
         # start the timer
-        self._production_timer = TimedDecay(int(self._production_time_sec * 1000), start_time=time.perf_counter())
+        if time_perf is None: time_perf = time.perf_counter()
+        self._production_timer = TimedDecay(int(self._production_time_sec * 1000), start_perf=time_perf)
         # self._production_timer = Timer(int(self._production_time_sec * 1000), start_on_init=True)
 
         # raise event
@@ -266,9 +263,8 @@ class Station:
             station=self
         ))
 
-    @property
-    def production_complete(self) -> bool:
-        if self._production_timer and time.perf_counter() > self._production_timer.EndTime:
+    def production_complete(self, time_perf) -> bool:
+        if self._production_timer and time_perf > self._production_timer.EndTime:
             return True
         return False
 

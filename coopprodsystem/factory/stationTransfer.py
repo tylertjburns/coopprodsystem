@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from coopprodsystem.factory.station import Station
 from coopstorage.my_dataclasses import Content
-from cooptools.timedDecay import Timer
+from cooptools.timedDecay import TimedDecay
 import uuid
 
 @dataclass(frozen=True)
@@ -9,7 +9,7 @@ class StationTransfer:
     from_station: Station
     to_station: Station
     content: Content
-    timer: Timer
+    timer: TimedDecay
     id: str = field(init=False)
 
     def __post_init__(self):

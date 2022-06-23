@@ -133,7 +133,7 @@ class ProductionLine:
                                                    to_station,
                                                    content=transfer_content,
                                                    timer=TimedDecay(self._transfer_time_s_callback() * 1000,
-                                                                    start_time=time_perf)
+                                                                    start_perf=time_perf)
                                                    )
 
     def add_stations(self, stations: List[Tuple[Station, Vector2]]):
