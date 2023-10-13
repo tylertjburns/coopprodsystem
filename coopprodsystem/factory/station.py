@@ -17,7 +17,7 @@ from cooptools.metrics import Metrics
 from coopstorage.storage import Storage, Location, StorageState
 from coopstorage.my_dataclasses import UoMCapacity, Content, content_factory, ResourceUoM
 
-logger = logging.getLogger('coopprodsystem.station')
+logger = logging.getLogger(__name__)
 
 ProductionTimeSecCallback = Callable[[], float]
 
@@ -120,7 +120,7 @@ class Station:
             self.finish_producing()
             self._expertise_calculator.increment_s_producting(time_perf - self._last_perf)
         else:
-            logger.info(f"station_id {self.id}: producing...")
+            logger.debug(f"station_id {self.id}: producing...")
             self._expertise_calculator.increment_s_producting(time_perf - self._last_perf)
 
         # self._metrics.add_time_windows([TaggedTimeWindow(window=TimeWindow(start=self._last_perf, end=time_perf), tags=self.status)])
@@ -137,16 +137,26 @@ class Station:
     def producing(self):
         return True if self._production_timer is not None else False
 
+    def _set_current_exception(self, e: Exception):
+        if type(e) != type(self.current_exception):
+            logger.warning(f"station_id {self.id}: {e}")
+
+        self.current_exception = e
+
+
     def _try_start_producing(self, time_perf):
         try:
             self._start_producing(time_perf)
-            self.current_exception = None
+            self._set_current_exception(None)
+            # self.current_exception = None
         except (AtMaxCapacityException,
                 OutputStorageToFullToProduceException,
                 NotEnoughInputToProduceException,
                 InvalidInputToAddToStationException) as e:
-            self.current_exception = e
-            logger.warning(f"station_id {self.id}: {e}")
+            self._set_current_exception(e)
+            #
+            # self.current_exception = e
+            # logger.warning(f"station_id {self.id}: {e}")
         # except Exception as e:
         #     logger.error(f"station_id {self.id}: {e} ->"
         #                  f"\n{traceback.format_exc()}")

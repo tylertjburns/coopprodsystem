@@ -1,7 +1,6 @@
 import unittest
 from coopprodsystem import ProductionLine
 from tests.station_manifest import STATIONS
-from coopstructs.vectors import Vector2
 import random as rnd
 
 class Test_ProdLine(unittest.TestCase):
@@ -21,7 +20,7 @@ class Test_ProdLine(unittest.TestCase):
 
     def test__init__prod_line(self):
         # arrange
-        stations = [(x, Vector2(rnd.randint(0, 10), rnd.randint(0, 10))) for x in STATIONS.values()]
+        stations = [(x, (rnd.randint(0, 10), rnd.randint(0, 10))) for x in STATIONS.values()]
         # act
         pl = ProductionLine(
             init_stations=stations,
