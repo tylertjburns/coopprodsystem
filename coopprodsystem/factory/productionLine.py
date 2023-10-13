@@ -11,7 +11,7 @@ from cooptools.timedDecay import Timer, TimedDecay
 from cooptools.coopthreading import AsyncWorker
 import cooptools.geometry_utils.vector_utils as vec
 
-logger = logging.getLogger('coopprodsystem.productionLine')
+logger = logging.getLogger(__name__)
 
 time_provider = Callable[[], float]
 
