@@ -174,7 +174,8 @@ class Station:
 
         # start the timer
         if time_perf is None: time_perf = time.perf_counter()
-        self._production_timer = TimedDecay(int(self._production_time_sec * 1000), start_perf=time_perf)
+        self._production_timer = TimedDecay(time_ms=int(self._production_time_sec * 1000),
+                                            start_perf=time_perf)
         # self._production_timer = Timer(int(self._production_time_sec * 1000), start_on_init=True)
 
         # raise event
@@ -264,7 +265,7 @@ class Station:
         ))
 
     def production_complete(self, time_perf) -> bool:
-        if self._production_timer and time_perf > self._production_timer.EndTime:
+        if self._production_timer and self._production_timer.EndTime and time_perf > self._production_timer.EndTime:
             return True
         return False
 

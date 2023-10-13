@@ -4,7 +4,6 @@ import logging
 from tests.station_manifest import STATIONS, StationType
 from coopprodsystem.factory import ProductionLine, Station, station_factory, ByRunsExpertiseSchedule
 from coopstorage.my_dataclasses import ResourceUoM, UoM
-from coopstructs.vectors import Vector2
 import random as rnd
 import tests.sku_manifest as skus
 from tests.uom_manifest import each
@@ -36,7 +35,7 @@ relationship_mapper = {
 
 stations_pos = [(station_factory(x,
                                  id=f"{x.id}",
-                                 expertise_schedule=expertise_schedule), Vector2(rnd.randint(0, 10), rnd.randint(0, 10))) for x in STATIONS.values()]
+                                 expertise_schedule=expertise_schedule), (rnd.randint(0, 10), rnd.randint(0, 10))) for x in STATIONS.values()]
 relationship_map = {next(station for station, _ in stations_pos if station.type == dest_type.name):
                         [(next(station for station, _ in stations_pos if station.type == srs[0].name), srs[1]) for srs in srss]
                     for dest_type, srss in relationship_mapper.items()}

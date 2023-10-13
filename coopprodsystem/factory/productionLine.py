@@ -3,13 +3,13 @@ import time
 from coopgraph.graphs import Graph, Node, Edge
 from typing import List, Dict, Tuple, Callable
 from coopprodsystem.factory.station import Station
-from coopstructs.vectors import Vector2
 from coopstorage.my_dataclasses import content_factory, ResourceUoM, Content
 from coopprodsystem.factory import StationTransfer
 import logging
 import coopprodsystem.events as cevents
 from cooptools.timedDecay import Timer, TimedDecay
 from cooptools.coopthreading import AsyncWorker
+import cooptools.geometry_utils.vector_utils as vec
 
 logger = logging.getLogger('coopprodsystem.productionLine')
 
@@ -18,7 +18,7 @@ time_provider = Callable[[], float]
 
 class ProductionLine:
     def __init__(self,
-                 init_stations: List[Tuple[Station, Vector2]] = None,
+                 init_stations: List[Tuple[Station, vec.FloatVec]] = None,
                  init_relationship_map: Dict[Station, List[Tuple[Station, List[ResourceUoM]]]] = None,
                  id: str = None,
                  start_on_init: bool = True,
@@ -28,7 +28,7 @@ class ProductionLine:
         self._id = id or uuid.uuid4()
         self._graph = Graph()
         self._stations: Dict[str, Station] = {}
-        self._station_positions: Dict[str, Vector2] = {}
+        self._station_positions: Dict[str, vec.FloatVec] = {}
         self._station_transfers: List[StationTransfer] = []
         self._connection_resource_uom: Dict[str, List[ResourceUoM]] = {}
         _def_time_provider = lambda: 3
@@ -136,7 +136,7 @@ class ProductionLine:
                                                                     start_perf=time_perf)
                                                    )
 
-    def add_stations(self, stations: List[Tuple[Station, Vector2]]):
+    def add_stations(self, stations: List[Tuple[Station, vec.FloatVec]]):
         # add stations to the prod line
         for station, pos in stations:
             self._stations[station.id] = station
@@ -173,7 +173,7 @@ class ProductionLine:
         return self._stations
 
     @property
-    def StationPositions(self) -> Dict[str, Vector2]:
+    def StationPositions(self) -> Dict[str, vec.FloatVec]:
         return self._station_positions
 
     @property
