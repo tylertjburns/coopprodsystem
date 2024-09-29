@@ -10,7 +10,7 @@ from coopprodsystem.factory.stationResourceDefinition import StationResourceDefi
 from coopprodsystem.factory.stationStatus import StationStatus
 from cooptools.coopEnum import CoopEnum
 from enum import auto
-from coopprodsystem.factory.expertiseSchedules import ExpertiseSchedule, ExpertiseCalculator
+from cooptools.expertise.expertiseSchedules import ExpertiseSchedule, ExpertiseCalculator
 from cooptools.coopthreading import AsyncWorker
 from cooptools.timeWindow import TaggedTimeWindow, TimeWindow
 from cooptools.metrics import Metrics
