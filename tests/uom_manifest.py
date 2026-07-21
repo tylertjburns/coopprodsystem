@@ -1,8 +1,8 @@
-from coopstorage.my_dataclasses import UoM
+from coopstorage.storage.loc_load.dcs import UnitOfMeasure
 
-each = UoM(name='EACH')
-pallet = UoM(name='PALLET')
-bottle = UoM(name='BOTTLE')
+each = UnitOfMeasure(name='EACH')
+pallet = UnitOfMeasure(name='PALLET')
+bottle = UnitOfMeasure(name='BOTTLE')
 
 uoms = [
     each,
