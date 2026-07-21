@@ -2,12 +2,12 @@ import uuid
 import time
 from coopgraph.graphs import Graph, Node, Edge
 from typing import List, Dict, Tuple, Callable
-from coopprodsystem.factory.station import Station
-from coopstorage.my_dataclasses import content_factory, ResourceUoM, Content
+from coopprodsystem.factory.station import Station, ResourceUomKey
+from coopstorage.storage.loc_load.dcs import ContainerContent
 from coopprodsystem.factory import StationTransfer
 import logging
 import coopprodsystem.events as cevents
-from cooptools.timedDecay import Timer, TimedDecay
+from cooptools.timeTracker.decay import TimedDecay
 from cooptools.coopthreading import AsyncWorker
 import cooptools.geometry_utils.vector_utils as vec
 
@@ -19,7 +19,7 @@ time_provider = Callable[[], float]
 class ProductionLine:
     def __init__(self,
                  init_stations: List[Tuple[Station, vec.FloatVec]] = None,
-                 init_relationship_map: Dict[Station, List[Tuple[Station, List[ResourceUoM]]]] = None,
+                 init_relationship_map: Dict[Station, List[Tuple[Station, List[ResourceUomKey]]]] = None,
                  id: str = None,
                  start_on_init: bool = True,
                  transfer_time_s_callback: time_provider = None
@@ -30,7 +30,7 @@ class ProductionLine:
         self._stations: Dict[str, Station] = {}
         self._station_positions: Dict[str, vec.FloatVec] = {}
         self._station_transfers: List[StationTransfer] = []
-        self._connection_resource_uom: Dict[str, List[ResourceUoM]] = {}
+        self._connection_resource_uom: Dict[str, List[ResourceUomKey]] = {}
         _def_time_provider = lambda: 3
         self._transfer_time_s_callback = transfer_time_s_callback or _def_time_provider
 
@@ -62,7 +62,7 @@ class ProductionLine:
             if not station.AsyncStarted:
                 station.update(time_perf)
 
-    def init_station_transfer(self, from_s: Station, to_s: Station, content: Content, timer: TimedDecay):
+    def init_station_transfer(self, from_s: Station, to_s: Station, content: ContainerContent, timer: TimedDecay):
         transfer_content = next(iter(from_s.remove_output(content=[content])), None)
 
         new_transfer = StationTransfer(
@@ -90,12 +90,12 @@ class ProductionLine:
                         transfer=transfer
                     ))
 
-    def check_connections_to_station(self, station: Station) -> Dict[Station, List[ResourceUoM]]:
+    def check_connections_to_station(self, station: Station) -> Dict[Station, List[ResourceUomKey]]:
         edge_connections = self._graph.edges_to_node(self._graph.node_by_name(node_name=station.id))
         feeder_stations = {self._stations[e.start.name]: self._connection_resource_uom[e.id] for e in edge_connections}
         return feeder_stations
 
-    def content_in_transit_to_station(self, station_id: str) -> List[Content]:
+    def content_in_transit_to_station(self, station_id: str) -> List[ContainerContent]:
         return [x.content for x in self._station_transfers if x.to_station.id == station_id]
 
     def check_create_transfers(self, time_perf):
@@ -120,15 +120,16 @@ class ProductionLine:
 
                     # calulate the amount of resourceUoM that is in existing transfers to the station.
                     amount_resource_uom_on_its_way = sum(
-                        [c.qty for c in transfers_to_station if c.resourceUoM == resource_uom])
+                        [c.qty for c in transfers_to_station if (c.resource, c.uom) == resource_uom])
 
                     # resolve the amount of resourceUoM that can be sent based on the difference of (space avail) - (on its way)
                     space_minus_in_transit = space_for_resource_uom - amount_resource_uom_on_its_way
 
                     # if there is capacity after transfers, then init a new transfer to the dest in the amount of min(space, avail)
                     if space_minus_in_transit > 0:
-                        transfer_content = content_factory(resource_uom=resource_uom,
-                                                           qty=min(space_minus_in_transit, avail_qty))
+                        transfer_content = ContainerContent(resource=resource_uom[0],
+                                                            uom=resource_uom[1],
+                                                            qty=min(space_minus_in_transit, avail_qty))
                         self.init_station_transfer(feeder_station,
                                                    to_station,
                                                    content=transfer_content,
@@ -154,7 +155,7 @@ class ProductionLine:
         for station, pos in stations:
             cevents.raise_station_added(cevents.OnStationAddedEventArgs(station=station))
 
-    def add_relationships(self, relationships: Dict[Station, List[Tuple[Station, List[ResourceUoM]]]]):
+    def add_relationships(self, relationships: Dict[Station, List[Tuple[Station, List[ResourceUomKey]]]]):
         edges = []
         for to, froms in relationships.items():
             for station, resource_uoms in froms:

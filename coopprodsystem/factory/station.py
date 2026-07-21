@@ -2,8 +2,8 @@ import time
 import threading
 import uuid
 
-from typing import List, Optional, Callable, Dict
-from cooptools.timedDecay import Timer, TimedDecay
+from typing import List, Optional, Callable, Dict, Tuple
+from cooptools.timeTracker.decay import TimedDecay
 import logging
 import coopprodsystem.events as evnts
 from coopprodsystem.factory.stationResourceDefinition import StationResourceDefinition
@@ -13,13 +13,16 @@ from enum import auto
 from cooptools.expertise.expertiseSchedules import ExpertiseSchedule, ExpertiseCalculator
 from cooptools.coopthreading import AsyncWorker
 from cooptools.timeWindow import TaggedTimeWindow, TimeWindow
-from cooptools.metrics import Metrics
-from coopstorage.storage import Storage, Location, StorageState
-from coopstorage.my_dataclasses import UoMCapacity, Content, content_factory, ResourceUoM
+from cooptools.ideas.metrics import Metrics
+from cooptools.qualifiers import WhiteBlackListQualifier
+import coopstorage.storage.loc_load.dcs as dcs
+from coopstorage.storage.loc_load.storage import Storage
+from coopstorage.storage.loc_load.location import Location
 
 logger = logging.getLogger(__name__)
 
 ProductionTimeSecCallback = Callable[[], float]
+ResourceUomKey = Tuple[dcs.Resource, dcs.UnitOfMeasure]
 
 
 class AtMaxCapacityException(Exception):
@@ -47,6 +50,33 @@ class StationProductionStrategy(CoopEnum):
     PRODUCE_IF_ANY_SPACE_AVAIL = auto()
 
 
+def _build_slot_storage(id_prefix: str, defs: List[StationResourceDefinition]) -> Tuple[Storage, Dict[ResourceUomKey, str]]:
+    """One Location per resource-def, each pre-populated with a single Container
+    scoped (via uom_capacities + resource_qualifier) to that def's resource/uom.
+    Bypasses the TransferRequest/reservation pipeline -- a Station's own input/output
+    storage has no other actor contending for it."""
+    locs = []
+    containers = []
+    loc_ids: Dict[ResourceUomKey, str] = {}
+    for ii, defin in enumerate(defs):
+        loc_id = f"{id_prefix}_{ii}"
+        container = dcs.Container(
+            uom=defin.content.uom,
+            uom_capacities=frozenset([dcs.UoMCapacity(uom=defin.content.uom, capacity=defin.storage_capacity)]),
+            resource_qualifier=WhiteBlackListQualifier(white_list=[defin.content.resource]),
+        )
+        loc = Location(
+            id=loc_id,
+            location_meta=dcs.LocationMeta(dims=(1, 1, 1), capacity=1),
+            coords=(0, 0, 0),
+        )
+        loc.store_containers([container.id])
+        locs.append(loc)
+        containers.append(container)
+        loc_ids[(defin.content.resource, defin.content.uom)] = loc_id
+    return Storage(locs=locs, containers=containers, id=id_prefix), loc_ids
+
+
 class Station:
     def __init__(self,
                  output: List[StationResourceDefinition],
@@ -62,17 +92,8 @@ class Station:
         self.type = type
         self._input_reqs = input_reqs or []
         self._output = output
-        self._input_storage = Storage(
-            id=f"{self.id}_input",
-            locations=[Location(id=f"{self.id}_{ii}",
-                                uom_capacities=frozenset([UoMCapacity(x.content.uom, x.storage_capacity)]),
-                                resource_limitations=frozenset([x.content.resource])) for ii, x in
-                       enumerate(input_reqs)])
-        self._output_storage = Storage(
-            id=f"{self.id}_output",
-            locations=[Location(id=f"{self.id}_{ii}",
-                                uom_capacities=frozenset([UoMCapacity(x.content.uom, x.storage_capacity)]),
-                                resource_limitations=frozenset([x.content.resource])) for ii, x in enumerate(output)])
+        self._input_storage, self._input_loc_ids = _build_slot_storage(f"{self.id}_input", self._input_reqs)
+        self._output_storage, self._output_loc_ids = _build_slot_storage(f"{self.id}_output", output)
         self._production_time_sec_callback = production_timer_sec_callback
         self._production_timer: Optional[TimedDecay] = None
         self.production_strategy: StationProductionStrategy = production_strategy or StationProductionStrategy.PRODUCE_IF_ALL_SPACE_AVAIL
@@ -148,18 +169,11 @@ class Station:
         try:
             self._start_producing(time_perf)
             self._set_current_exception(None)
-            # self.current_exception = None
         except (AtMaxCapacityException,
                 OutputStorageToFullToProduceException,
                 NotEnoughInputToProduceException,
                 InvalidInputToAddToStationException) as e:
             self._set_current_exception(e)
-            #
-            # self.current_exception = e
-            # logger.warning(f"station_id {self.id}: {e}")
-        # except Exception as e:
-        #     logger.error(f"station_id {self.id}: {e} ->"
-        #                  f"\n{traceback.format_exc()}")
 
     def _start_producing(self, time_perf: float = None):
         # verify have capacity to produce
@@ -186,7 +200,6 @@ class Station:
         if time_perf is None: time_perf = time.perf_counter()
         self._production_timer = TimedDecay(time_ms=int(self._production_time_sec * 1000),
                                             start_perf=time_perf)
-        # self._production_timer = Timer(int(self._production_time_sec * 1000), start_on_init=True)
 
         # raise event
         evnts.raise_event_production_started_at_station(args=evnts.OnProductionStartedAtStationEventArgs(
@@ -209,39 +222,51 @@ class Station:
             raise NotImplementedError(f"Production Strategy: {self.production_strategy} is unrecognized for producing")
 
     def _raise_if_not_enough_inputs(self):
+        stored = self.stored_inputs
         for input_req in self._input_reqs:
-            stored_in = self._input_storage.state.qty_of_resource_uoms(resource_uoms=[input_req.content.resourceUoM])[
-                input_req.content.resourceUoM]
-            if stored_in < input_req.content.qty:
+            key = (input_req.content.resource, input_req.content.uom)
+            if stored.get(key, 0.0) < input_req.content.qty:
                 raise NotEnoughInputToProduceException()
 
-    def add_input(self, inputs: List[Content]):
+    def add_input(self, inputs: List[dcs.ContainerContent]):
         with threading.Lock():
             for input in inputs:
-                if not any([x.content.match_resouce_uom(input) for x in self._input_reqs]):
+                key = (input.resource, input.uom)
+                if key not in self._input_loc_ids:
                     raise InvalidInputToAddToStationException()
-                self._input_storage.add_content(content_factory(input))
+                self._input_storage.add_content_to_container_at_location(
+                    loc_id=self._input_loc_ids[key],
+                    contents=[input]
+                )
                 logger.info(f"station_id {self.id}: Content added: {input}")
 
     def _consume_input(self):
         with threading.Lock():
             for input_req in self._input_reqs:
-                self._input_storage.remove_content(content_factory(input_req.content))
+                key = (input_req.content.resource, input_req.content.uom)
+                self._input_storage.remove_content_from_container_at_location(
+                    loc_id=self._input_loc_ids[key],
+                    content=input_req.content
+                )
 
     @property
-    def available_output(self) -> Dict[ResourceUoM, float]:
-        return self._output_storage.state.InventoryByResourceUom
+    def available_output(self) -> Dict[ResourceUomKey, float]:
+        return self._output_storage.InventoryByResourceUom
 
     @property
-    def available_output_as_content(self) -> List[Content]:
+    def available_output_as_content(self) -> List[dcs.ContainerContent]:
         return self.resource_uom_float_nested_to_content(self.available_output)
 
-    def remove_output(self, content: List[Content]) -> List[Content]:
+    def remove_output(self, content: List[dcs.ContainerContent]) -> List[dcs.ContainerContent]:
         with threading.Lock():
             removed = []
             for c in content:
-                rmvd = self._output_storage.remove_content(c)
-                removed.append(rmvd)
+                key = (c.resource, c.uom)
+                self._output_storage.remove_content_from_container_at_location(
+                    loc_id=self._output_loc_ids[key],
+                    content=c
+                )
+                removed.append(c)
                 logger.info(f"station_id {self.id}: Content removed: {content}")
 
             return removed
@@ -255,11 +280,13 @@ class Station:
         with threading.Lock():
             output_space = self.space_for_output
             for output in self._output:
-                qty = min(output_space[output.content.resourceUoM], output.content.qty)
+                key = (output.content.resource, output.content.uom)
+                qty = min(output_space[key], output.content.qty)
                 if qty == 0:
                     continue
-                self._output_storage.add_content(
-                    content_factory(output.content, qty=qty)
+                self._output_storage.add_content_to_container_at_location(
+                    loc_id=self._output_loc_ids[key],
+                    contents=[dcs.ContainerContent(resource=output.content.resource, uom=output.content.uom, qty=qty)]
                 )
                 logger.info(f"station_id {self.id}: Content produced: {output.content}")
 
@@ -280,28 +307,28 @@ class Station:
         return False
 
     @property
-    def short_inputs(self) -> List[Content]:
+    def short_inputs(self) -> List[dcs.ContainerContent]:
         short = []
-
+        stored = self.stored_inputs
         for input in self._input_reqs:
-            stored = self._input_storage.state.qty_of_resource_uoms(resource_uoms=[input.content.resourceUoM])[
-                input.content.resourceUoM]
-            if stored < input.content.qty:
-                short.append(content_factory(input.content, qty=input.content.qty - stored))
+            key = (input.content.resource, input.content.uom)
+            stored_qty = stored.get(key, 0.0)
+            if stored_qty < input.content.qty:
+                short.append(dcs.ContainerContent(resource=input.content.resource, uom=input.content.uom, qty=input.content.qty - stored_qty))
 
         return short
 
     @property
-    def space_for_input(self) -> Dict[ResourceUoM, float]:
-        return self._input_storage.state.space_for_resource_uom(
-            [defin.content.resourceUoM for defin in self._input_reqs]
-        )
+    def space_for_input(self) -> Dict[ResourceUomKey, float]:
+        stored = self.stored_inputs
+        return {(defin.content.resource, defin.content.uom): defin.storage_capacity - stored.get((defin.content.resource, defin.content.uom), 0.0)
+                for defin in self._input_reqs}
 
     @property
-    def space_for_output(self) -> Dict[ResourceUoM, float]:
-        return self._output_storage.state.space_for_resource_uom(
-            [defin.content.resourceUoM for defin in self._output]
-        )
+    def space_for_output(self) -> Dict[ResourceUomKey, float]:
+        stored = self.available_output
+        return {(defin.content.resource, defin.content.uom): defin.storage_capacity - stored.get((defin.content.resource, defin.content.uom), 0.0)
+                for defin in self._output}
 
     @property
     def input_reqs(self):
@@ -316,26 +343,23 @@ class Station:
         return self._production_time_sec_callback
 
     @property
-    def stored_inputs(self) -> Dict[ResourceUoM, float]:
-        return self._input_storage.state.InventoryByResourceUom
+    def stored_inputs(self) -> Dict[ResourceUomKey, float]:
+        return self._input_storage.InventoryByResourceUom
 
     @property
-    def stored_inputs_as_content(self) -> List[Content]:
+    def stored_inputs_as_content(self) -> List[dcs.ContainerContent]:
         return self.resource_uom_float_nested_to_content(self.stored_inputs)
 
     def resource_uom_float_nested_to_content(self,
-                                             resource_uom_float_nested: Dict[ResourceUoM, float]) -> List[Content]:
-        return [Content(resource_uom, float) for resource_uom, float in resource_uom_float_nested.items()]
-
-    def content_to_resource_uom_float_nested(self, content: List[Content]) -> Dict[ResourceUoM, float]:
-        return {c.resourceUoM: c.qty for c in content}
+                                             resource_uom_float_nested: Dict[ResourceUomKey, float]) -> List[dcs.ContainerContent]:
+        return [dcs.ContainerContent(resource=resource_uom[0], uom=resource_uom[1], qty=qty) for resource_uom, qty in resource_uom_float_nested.items()]
 
     @property
-    def output_space_minus_production_run(self) -> Dict[ResourceUoM, float]:
+    def output_space_minus_production_run(self) -> Dict[ResourceUomKey, float]:
         output_space = self.space_for_output
-        ret = {resource_uom: qty - next(x.content.qty
-                                        for x in self.outputs if x.content.resourceUoM == resource_uom)
-               for resource_uom, qty in output_space.items()}
+        ret = {key: qty - next(x.content.qty
+                               for x in self.outputs if (x.content.resource, x.content.uom) == key)
+               for key, qty in output_space.items()}
         return ret
 
     @property
@@ -362,7 +386,6 @@ class Station:
 
     @property
     def started(self):
-        # return not self._refresh_thread is None
         return self._async_worker.started
 
     @property
@@ -370,12 +393,12 @@ class Station:
         return self._metrics
 
     @property
-    def InputStorageState(self) -> StorageState:
-        return self._input_storage.state
+    def InputStorageState(self) -> Storage:
+        return self._input_storage
 
     @property
-    def OutputStorageState(self) -> StorageState:
-        return self._output_storage.state
+    def OutputStorageState(self) -> Storage:
+        return self._output_storage
 
     @property
     def AsyncStarted(self) -> bool:
@@ -402,7 +425,6 @@ def station_factory(station_template: Station,
 
 if __name__ == "__main__":
     from tests.station_manifest import STATIONS, StationType
-    from coopprodsystem.factory import station_factory
 
     logging.basicConfig(level=logging.INFO)
     s_template = STATIONS[StationType.RAW_1]
@@ -413,13 +435,14 @@ if __name__ == "__main__":
         station.update()
 
         to_remove = []
-        for ru, qty in station.available_output.items():
-            if qty > 0.75 * station.OutputStorageState.capacity_for_resource_uoms(resource_uoms=[ru])[ru]:
-                to_remove.append(Content(resourceUoM=ru, qty=qty))
+        space_for_output = station.space_for_output
+        for (resource, uom), qty in station.available_output.items():
+            defin = next(x for x in station.outputs if x.content.resource == resource and x.content.uom == uom)
+            if qty > 0.75 * defin.storage_capacity:
+                to_remove.append(dcs.ContainerContent(resource=resource, uom=uom, qty=qty))
         station.remove_output(to_remove)
 
         shorts = station.short_inputs
         if len(shorts) > 0:
             time.sleep(4)
             station.add_input(shorts)
-
