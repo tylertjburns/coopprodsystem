@@ -11,6 +11,7 @@ from coopprodsystem.factory.stationStatus import StationStatus
 from cooptools.coopEnum import CoopEnum
 from enum import auto
 from cooptools.expertise.expertiseSchedules import ExpertiseSchedule, ExpertiseCalculator
+from cooptools.expertise.expertiseArgs import ExpertiseArgs
 from cooptools.coopthreading import AsyncWorker
 from cooptools.timeWindow import TaggedTimeWindow, TimeWindow
 from cooptools.ideas.metrics import Metrics
@@ -23,6 +24,43 @@ logger = logging.getLogger(__name__)
 
 ProductionTimeSecCallback = Callable[[], float]
 ResourceUomKey = Tuple[dcs.Resource, dcs.UnitOfMeasure]
+
+# Key under which a state block carries its own version. Spelled out rather than
+# imported: Station satisfies a consuming framework's persistence protocol
+# structurally, by having to_state/apply_state, and must not take a dependency on
+# whichever framework happens to be persisting it.
+STATE_VERSION_KEY = 'v'
+
+
+def _contents_to_state(by_resource_uom: Dict[ResourceUomKey, float]) -> List[dict]:
+    """Store contents as resource/uom *names*.
+
+    Never as the Resource objects themselves, and never reconstructed from these
+    names on the way back: Resource and UnitOfMeasure are identity-typed -- they
+    hash by a generated id rather than by their fields -- so a rebuilt
+    `Resource(name='FOOD')` is a different resource from the one this station's
+    containers are qualified to hold, and every add against it would be refused.
+    See _resolve_key for how the name is turned back into the right instance.
+    """
+    return sorted(
+        ({'resource': resource.name, 'uom': uom.name, 'qty': qty}
+         for (resource, uom), qty in by_resource_uom.items() if qty > 0),
+        key=lambda entry: (entry['resource'], entry['uom']),
+    )
+
+
+def _resolve_key(loc_ids: Dict[ResourceUomKey, str], resource_name: str,
+                 uom_name: str) -> Optional[ResourceUomKey]:
+    """The station's own (Resource, UoM) key matching these names, or None.
+
+    The station's definitions are the lookup table: it can only ever hold what its
+    recipe declares, so a saved content naming something absent from the recipe is
+    something the recipe no longer has a slot for, and dropping it is correct.
+    """
+    for key in loc_ids:
+        if key[0].name == resource_name and key[1].name == uom_name:
+            return key
+    return None
 
 
 class AtMaxCapacityException(Exception):
@@ -274,6 +312,114 @@ class Station:
     def reset_production(self):
         self._production_time_sec = None
         self._production_timer = None
+
+    # ---------- persistence ----------
+    #
+    # Satisfies a consuming framework's to_state/apply_state protocol
+    # structurally: this class implements the two methods and imports nothing to
+    # do it, so persisting a Station creates no dependency on whatever is doing
+    # the persisting.
+    #
+    # The line drawn throughout is state vs. definition. A Station is *built*
+    # from its recipe -- input_reqs, output, the production-time callback, the
+    # expertise schedule -- and *holds* what is in its stores and how far the
+    # current run has got. Only the second half is written here; the first half
+    # is rebuilt by whatever constructed this station the first time, from the
+    # same recipe it used then.
+
+    STATE_VERSION = 1
+
+    def to_state(self) -> dict:
+        """Everything play changed about this station.
+
+        `_last_perf` and the run timer are written raw, in the caller's own clock.
+        That is meaningful precisely because `update(time_perf=...)` lets the
+        caller own the clock: a consumer driving this from a persisted accumulator
+        restores that accumulator alongside this state, and the run resumes at the
+        exact point it stopped. A station being driven from `time.perf_counter()`
+        instead has no such guarantee -- perf_counter's origin is arbitrary per
+        process -- and its run will read as long finished on load.
+        """
+        expertise = self._expertise_calculator._expertise_args
+        return {
+            STATE_VERSION_KEY: self.STATE_VERSION,
+            'inputs': _contents_to_state(self.stored_inputs),
+            'outputs': _contents_to_state(self.available_output),
+            'production_time_sec': self._production_time_sec,
+            'last_prod_s': self.last_prod_s,
+            'last_perf': self._last_perf,
+            'timer': ({'time_ms': self._production_timer.time_ms,
+                       'start_perf': self._production_timer.start_perf}
+                      if self._production_timer is not None else None),
+            'expertise': {'n_runs': expertise.n_runs,
+                          'accumulated_s': expertise.accumulated_s,
+                          'exp': expertise.exp},
+        }
+
+    def apply_state(self, state: dict):
+        """Replaces stores, run and expertise with the saved ones.
+
+        Stores are emptied first: a station constructed from its recipe may
+        already hold whatever its consumer put there on the way past, and a merge
+        would leave it holding that plus the save.
+        """
+        version = state.get(STATE_VERSION_KEY)
+        if not isinstance(version, int) or isinstance(version, bool):
+            raise ValueError(f"Station '{self.id}' state carries no usable "
+                             f"'{STATE_VERSION_KEY}' version")
+        if version > self.STATE_VERSION:
+            raise ValueError(f"Station '{self.id}' state is version {version}, but this "
+                             f"build understands up to {self.STATE_VERSION}")
+
+        self._empty_store(self._input_storage, self._input_loc_ids, self.stored_inputs)
+        self._empty_store(self._output_storage, self._output_loc_ids, self.available_output)
+
+        self._fill_store(self._input_storage, self._input_loc_ids, state.get('inputs', []))
+        self._fill_store(self._output_storage, self._output_loc_ids, state.get('outputs', []))
+
+        self._production_time_sec = state.get('production_time_sec')
+        self.last_prod_s = state.get('last_prod_s')
+        self._last_perf = state.get('last_perf')
+
+        timer = state.get('timer')
+        self._production_timer = (
+            TimedDecay(time_ms=timer['time_ms'], start_perf=timer['start_perf'])
+            if timer is not None else None)
+
+        # Rebuilt through the public increments on a fresh calculator rather than
+        # by assigning its args, so the only reach into ExpertiseCalculator's
+        # internals is the read in to_state.
+        saved = state.get('expertise') or {}
+        calculator = ExpertiseCalculator(schedule=self._expertise_calculator.schedule)
+        calculator.increment_n_runs(saved.get('n_runs', 0))
+        calculator.increment_s_producting(saved.get('accumulated_s', 0))
+        calculator.increment_exp(saved.get('exp', 0))
+        self._expertise_calculator = calculator
+
+        self.current_exception = None
+
+    def _empty_store(self, storage: Storage, loc_ids: Dict[ResourceUomKey, str],
+                     held: Dict[ResourceUomKey, float]):
+        for key, qty in list(held.items()):
+            if qty > 0 and key in loc_ids:
+                storage.remove_content_from_container_at_location(
+                    loc_id=loc_ids[key],
+                    content=dcs.ContainerContent(resource=key[0], uom=key[1], qty=qty))
+
+    def _fill_store(self, storage: Storage, loc_ids: Dict[ResourceUomKey, str],
+                    entries: List[dict]):
+        for entry in entries:
+            key = _resolve_key(loc_ids, entry['resource'], entry['uom'])
+            if key is None:
+                logger.warning(f"station_id {self.id}: saved {entry['qty']} "
+                               f"{entry['resource']} has no slot in this station's recipe "
+                               f"any more -- dropped")
+                continue
+            if entry['qty'] <= 0:
+                continue
+            storage.add_content_to_container_at_location(
+                loc_id=loc_ids[key],
+                contents=[dcs.ContainerContent(resource=key[0], uom=key[1], qty=entry['qty'])])
 
     def finish_producing(self):
         # generate outputs
